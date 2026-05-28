@@ -6,11 +6,13 @@ LDFLAGS =
 MAIN_EXEC = Filson
 TEST_EXEC = test_builtins
 TEST_ENV_EXEC = test_environment_variables
+TEST_SEC_EXEC = test_security
 
 # Source files
 MAIN_SRC = filson.c filson_main.c
 TEST_SRC = test_builtins.c
 TEST_ENV_SRC = test_environment_variables.c
+TEST_SEC_SRC = test_security.c
 
 # Object files
 MAIN_OBJ = filson.o
@@ -39,13 +41,20 @@ $(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c
 	@echo "✓ Built $(TEST_ENV_EXEC)"
 
+# Build test_security
+$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c
+	@echo "✓ Built $(TEST_SEC_EXEC)"
+
 # Run tests
 .PHONY: test
-test: $(TEST_EXEC) $(TEST_ENV_EXEC)
+test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC)
 	@echo "\n=== Running Built-in Tests ==="
 	./$(TEST_EXEC)
 	@echo "\n=== Running Environment Variable Tests ==="
 	./$(TEST_ENV_EXEC)
+	@echo "\n=== Running Security Tests ==="
+	./$(TEST_SEC_EXEC)
 
 # Run only built-in tests
 .PHONY: test-builtins
@@ -58,6 +67,12 @@ test-builtins: $(TEST_EXEC)
 test-env: $(TEST_ENV_EXEC)
 	@echo "\n=== Running Environment Variable Tests ==="
 	./$(TEST_ENV_EXEC)
+
+# Run only security tests
+.PHONY: test-security
+test-security: $(TEST_SEC_EXEC)
+	@echo "\n=== Running Security Tests ==="
+	./$(TEST_SEC_EXEC)
 
 # Build and run main shell
 .PHONY: run

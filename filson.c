@@ -9,6 +9,9 @@ int filson_help(char **args);
 int filson_exit(char **args);
 int filson_set(char **args);
 int filson_echo(char **args);
+int filson_is_valid_varname(const char *name);
+int filson_path_is_safe(void);
+int filson_arg_count(char **args);
 
 char *builtin_str[] = {
 	"cd",
@@ -30,6 +33,72 @@ int
 filson_num_builtins(void)
 {
 	return sizeof(builtin_str) / sizeof(char *);
+}
+
+int
+filson_is_valid_varname(const char *name)
+{
+	int i;
+
+	if (name == NULL || name[0] == '\0') {
+		return 0;
+	}
+	if (!((name[0] >= 'a' && name[0] <= 'z') || 
+	      (name[0] >= 'A' && name[0] <= 'Z') || 
+	      name[0] == '_')) {
+		return 0;
+	}
+	for (i = 1; name[i] != '\0'; i++) {
+		if (!((name[i] >= 'a' && name[i] <= 'z') || 
+		      (name[i] >= 'A' && name[i] <= 'Z') || 
+		      (name[i] >= '0' && name[i] <= '9') || 
+		      name[i] == '_')) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+int
+filson_arg_count(char **args)
+{
+	int count;
+
+	count = 0;
+	while (args[count] != NULL) {
+		count++;
+	}
+	return count;
+}
+
+int
+filson_path_is_safe(void)
+{
+	char *path_str;
+	char *path_copy, *token;
+	int safe;
+
+	path_str = getenv("PATH");
+	if (path_str == NULL) {
+		return 1;
+	}
+	path_copy = malloc(strlen(path_str) + 1);
+	if (path_copy == NULL) {
+		return 1;
+	}
+	strcpy(path_copy, path_str);
+	safe = 1;
+	token = strtok(path_copy, ":");
+	while (token != NULL) {
+		if (strcmp(token, ".") == 0 || strcmp(token, "") == 0) {
+			fprintf(stderr, "filson: warning - current directory in PATH\n");
+			safe = 0;
+			break;
+		}
+		token = strtok(NULL, ":");
+	}
+	free(path_copy);
+	return safe;
 }
 
 int
@@ -73,6 +142,10 @@ filson_set(char **args)
 {
 	if (args[1] == NULL || args[2] == NULL) {
 		fprintf(stderr, "filson: expected arguments to \"set\" <var> <value>\n");
+		return 1;
+	}
+	if (!filson_is_valid_varname(args[1])) {
+		fprintf(stderr, "filson: invalid variable name: %s\n", args[1]);
 		return 1;
 	}
 	if (setenv(args[1], args[2], 1) != 0) {
@@ -139,6 +212,11 @@ filson_execute(char **args)
 	if (args[0] == NULL) {
 		return 1;
 	}
+	if (filson_arg_count(args) > 1024) {
+		fprintf(stderr, "filson: too many arguments\n");
+		return 1;
+	}
+	filson_path_is_safe();
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
 			return (*builtin_func[i])(args);
