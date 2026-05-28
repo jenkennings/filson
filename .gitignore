@@ -1,0 +1,28 @@
+# Compiled binaries
+filson
+test_builtins
+test_env
+test_environment_variables
+*.o
+*.a
+*.so
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.exe
+
+# IDE files
+.vscode/
+.idea/
+*.code-workspace
+
+# Temporary test files
+/tmp/
+*.tmp
