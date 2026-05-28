@@ -236,11 +236,3 @@ int (*builtin_func[])(char **) = {
     } while (status);
   }
 
-  int main(int argc, char **argv)
-  {
-
-    filson_loop();
-
-    return EXIT_SUCCESS;
-  }
-
