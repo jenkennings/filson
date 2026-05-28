@@ -3,14 +3,14 @@ CFLAGS = -Wall -Wextra -std=c99 -D_POSIX_C_SOURCE=200809L
 LDFLAGS = 
 
 # Targets
-MAIN_EXEC = Filson
+MAIN_EXEC = filson
 TEST_EXEC = test_builtins
 TEST_ENV_EXEC = test_environment_variables
 TEST_SEC_EXEC = test_security
 TEST_PIPE_EXEC = test_pipelines
 
 # Source files
-MAIN_SRC = filson.c history.c jobcontrol.c pipelines.c filson_main.c
+MAIN_SRC = filson.c history.c jobcontrol.c pipelines.c autocomplete.c filson_main.c
 TEST_SRC = test_builtins.c
 TEST_ENV_SRC = test_environment_variables.c
 TEST_SEC_SRC = test_security.c
@@ -34,23 +34,23 @@ $(MAIN_EXEC): $(MAIN_SRC)
 	@echo "✓ Built $(MAIN_EXEC)"
 
 # Build test_builtins
-$(TEST_EXEC): $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_EXEC) $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c
+$(TEST_EXEC): $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_EXEC) $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
 	@echo "✓ Built $(TEST_EXEC)"
 
 # Build test_environment_variables
-$(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c
+$(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
 	@echo "✓ Built $(TEST_ENV_EXEC)"
 
 # Build test_security
-$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c
+$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
 	@echo "✓ Built $(TEST_SEC_EXEC)"
 
 # Build test_pipelines
-$(TEST_PIPE_EXEC): $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_PIPE_EXEC) $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c
+$(TEST_PIPE_EXEC): $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_PIPE_EXEC) $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
 	@echo "✓ Built $(TEST_PIPE_EXEC)"
 
 # Run tests

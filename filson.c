@@ -3,9 +3,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <termios.h>
 #include "history.h"
 #include "jobcontrol.h"
 #include "pipelines.h"
+#include "autocomplete.h"
 
 int filson_cd(char **args);
 int filson_help(char **args);
@@ -284,12 +286,23 @@ filson_execute(char **args, int background, char *segment)
 }
 
 #define FILSON_RL_BUFSIZE 1024
+#define FILSON_PROMPT "filson> "
+
+static void
+filson_refresh_line(const char *buffer)
+{
+	printf("\r%s%s\033[K", FILSON_PROMPT, buffer);
+	fflush(stdout);
+}
 
 char *
 filson_read_line(void)
 {
 	int bufsize, position, c;
+	int interactive, history_cursor, history_count;
 	char *buffer;
+	const char *history_entry;
+	struct termios oldt, newt;
 
 	bufsize = FILSON_RL_BUFSIZE;
 	position = 0;
@@ -298,24 +311,104 @@ filson_read_line(void)
 		fprintf(stderr, "filson: allocation error\n");
 		exit(EXIT_FAILURE);
 	}
+	buffer[0] = '\0';
+	interactive = isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &oldt) == 0;
+	history_count = filson_history_count_entries();
+	history_cursor = history_count;
+	if (interactive) {
+		newt = oldt;
+		newt.c_lflag &= ~(ICANON | ECHO);
+		newt.c_cc[VMIN] = 1;
+		newt.c_cc[VTIME] = 0;
+		tcsetattr(STDIN_FILENO, TCSANOW, &newt);
+	}
 	while (1) {
 		c = getchar();
-		if (c == EOF) {
+		if (interactive && c == 27) {
+			int next1, next2;
+
+			next1 = getchar();
+			next2 = getchar();
+			if (next1 == '[' && (next2 == 'A' || next2 == 'B')) {
+				if (next2 == 'A' && history_cursor > 0) {
+					history_cursor--;
+				} else if (next2 == 'B' && history_cursor < history_count) {
+					history_cursor++;
+				}
+				if (history_cursor >= 0 && history_cursor < history_count) {
+					history_entry = filson_history_get(history_cursor);
+					if (history_entry == NULL) {
+						history_entry = "";
+					}
+					while ((int)strlen(history_entry) >= bufsize) {
+						bufsize += FILSON_RL_BUFSIZE;
+						buffer = realloc(buffer, bufsize);
+						if (!buffer) {
+							fprintf(stderr, "filson: allocation error\n");
+							exit(EXIT_FAILURE);
+						}
+					}
+					strcpy(buffer, history_entry);
+					position = strlen(buffer);
+				} else {
+					position = 0;
+					buffer[0] = '\0';
+				}
+				filson_refresh_line(buffer);
+			}
+			continue;
+		}
+		if (interactive && c == '\t') {
+			filson_handle_autocomplete(&buffer, &bufsize, &position,
+				builtin_str, filson_num_builtins(), filson_refresh_line);
+			continue;
+		}
+		if (c == EOF || (interactive && c == 4 && position == 0)) {
+			if (interactive) {
+				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+			}
 			free(buffer);
 			return NULL;
 		} else if (c == '\n') {
+			if (interactive) {
+				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+				printf("\n");
+			}
 			buffer[position] = '\0';
 			return buffer;
+		} else if (interactive && (c == 127 || c == '\b')) {
+			if (position > 0) {
+				position--;
+				buffer[position] = '\0';
+				history_cursor = history_count;
+				filson_refresh_line(buffer);
+			}
+		} else if (interactive && c >= 32 && c <= 126) {
+			buffer[position] = (char)c;
+			position++;
+			buffer[position] = '\0';
+			if (position >= bufsize - 1) {
+				bufsize += FILSON_RL_BUFSIZE;
+				buffer = realloc(buffer, bufsize);
+				if (!buffer) {
+					fprintf(stderr, "filson: allocation error\n");
+					exit(EXIT_FAILURE);
+				}
+			}
+			history_cursor = history_count;
+			filson_refresh_line(buffer);
 		} else {
-			buffer[position] = c;
-		}
-		position++;
-		if (position >= bufsize) {
-			bufsize += FILSON_RL_BUFSIZE;
-			buffer = realloc(buffer, bufsize);
-			if (!buffer) {
-				fprintf(stderr, "filson: allocation error\n");
-				exit(EXIT_FAILURE);
+			if (!interactive) {
+				buffer[position] = c;
+				position++;
+				if (position >= bufsize) {
+					bufsize += FILSON_RL_BUFSIZE;
+					buffer = realloc(buffer, bufsize);
+					if (!buffer) {
+						fprintf(stderr, "filson: allocation error\n");
+						exit(EXIT_FAILURE);
+					}
+				}
 			}
 		}
 	}
@@ -364,7 +457,7 @@ filson_loop(void)
 	status = 1;
 	do {
 		filson_reap_background_jobs();
-		printf("filson> ");
+		printf(FILSON_PROMPT);
 		fflush(stdout);
 		line = filson_read_line();
 		if (line == NULL) {

@@ -12,6 +12,21 @@ static char *filson_history_entries[FILSON_HISTORY_SIZE];
 static int filson_history_count = 0;
 
 int
+filson_history_count_entries(void)
+{
+	return filson_history_count;
+}
+
+const char *
+filson_history_get(int idx)
+{
+	if (idx < 0 || idx >= filson_history_count) {
+		return NULL;
+	}
+	return filson_history_entries[idx];
+}
+
+int
 filson_history(char **args)
 {
 	int i, start, limit;
