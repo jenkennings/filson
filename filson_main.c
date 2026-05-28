@@ -2,12 +2,11 @@
 
 void filson_loop(void);
 
-int main(int argc, char **argv)
+int
+main(int argc, char **argv)
 {
-  (void)argc;    /* Suppress unused parameter warning */
-  (void)argv;    /* Suppress unused parameter warning */
-
-  filson_loop();
-
-  return EXIT_SUCCESS;
+	(void)argc;
+	(void)argv;
+	filson_loop();
+	return EXIT_SUCCESS;
 }
