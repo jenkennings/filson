@@ -17,6 +17,9 @@ MAIN_OBJ = filson.o
 TEST_OBJ = test_builtins.o
 TEST_ENV_OBJ = test_environment_variables.o
 
+# Set default target
+.DEFAULT_GOAL := $(MAIN_EXEC)
+
 # Default target
 .PHONY: all
 all: $(MAIN_EXEC)
