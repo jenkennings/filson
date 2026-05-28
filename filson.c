@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include "history.h"
+#include "jobcontrol.h"
+#include "pipelines.h"
 
 int filson_cd(char **args);
 int filson_help(char **args);
@@ -12,13 +15,21 @@ int filson_echo(char **args);
 int filson_is_valid_varname(const char *name);
 int filson_path_is_safe(void);
 int filson_arg_count(char **args);
+int filson_execute(char **args, int background, char *segment);
+char **filson_split_line(char *line);
+
+int filson_last_cmd_success = 1;
 
 char *builtin_str[] = {
 	"cd",
 	"help",
 	"exit",
 	"set",
-	"echo"
+	"echo",
+	"history",
+	"jobs",
+	"fg",
+	"bg"
 };
 
 int (*builtin_func[])(char **) = {
@@ -26,7 +37,11 @@ int (*builtin_func[])(char **) = {
 	&filson_help,
 	&filson_exit,
 	&filson_set,
-	&filson_echo
+	&filson_echo,
+	&filson_history,
+	&filson_jobs,
+	&filson_fg,
+	&filson_bg
 };
 
 int
@@ -106,9 +121,13 @@ filson_cd(char **args)
 {
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected argument to \"cd\"\n");
+		filson_last_cmd_success = 0;
 	} else {
 		if (chdir(args[1]) != 0) {
 			perror("filson");
+			filson_last_cmd_success = 0;
+		} else {
+			filson_last_cmd_success = 1;
 		}
 	}
 	return 1;
@@ -120,6 +139,7 @@ filson_help(char **args)
 	int i;
 
 	(void)args;
+	filson_last_cmd_success = 1;
 	printf("Bryan Copley's Filson\n");
 	printf("Type program names and arguments, and hit enter.\n");
 	printf("The following are built in:\n");
@@ -134,6 +154,7 @@ int
 filson_exit(char **args)
 {
 	(void)args;
+	filson_last_cmd_success = 1;
 	return 0;
 }
 
@@ -142,14 +163,19 @@ filson_set(char **args)
 {
 	if (args[1] == NULL || args[2] == NULL) {
 		fprintf(stderr, "filson: expected arguments to \"set\" <var> <value>\n");
+		filson_last_cmd_success = 0;
 		return 1;
 	}
 	if (!filson_is_valid_varname(args[1])) {
 		fprintf(stderr, "filson: invalid variable name: %s\n", args[1]);
+		filson_last_cmd_success = 0;
 		return 1;
 	}
 	if (setenv(args[1], args[2], 1) != 0) {
 		perror("filson");
+		filson_last_cmd_success = 0;
+	} else {
+		filson_last_cmd_success = 1;
 	}
 	return 1;
 }
@@ -179,14 +205,16 @@ filson_echo(char **args)
 		i++;
 	}
 	printf("\n");
+	filson_last_cmd_success = 1;
 	return 1;
 }
 
 int
-filson_launch(char **args)
+filson_launch(char **args, int background, char *segment)
 {
-	pid_t pid, wpid;
+	pid_t pid;
 	int status;
+	int job_id;
 
 	pid = fork();
 	if (pid == 0) {
@@ -196,33 +224,63 @@ filson_launch(char **args)
 		exit(EXIT_FAILURE);
 	} else if (pid < 0) {
 		perror("filson");
+		filson_last_cmd_success = 0;
 	} else {
-		do {
-			wpid = waitpid(pid, &status, WUNTRACED);
-		} while (!WIFEXITED(status) && !WIFSIGNALED(status));
+		if (background) {
+			job_id = filson_add_job(pid, segment, 0);
+			if (job_id < 0) {
+				fprintf(stderr, "filson: too many background jobs\n");
+				filson_last_cmd_success = 0;
+			} else {
+				printf("[%d] %d\n", job_id, pid);
+				filson_last_cmd_success = 1;
+			}
+		} else {
+			do {
+				waitpid(pid, &status, WUNTRACED);
+			} while (!WIFEXITED(status) && !WIFSIGNALED(status) && !WIFSTOPPED(status));
+			if (WIFSTOPPED(status)) {
+				job_id = filson_add_job(pid, segment, 1);
+				if (job_id >= 0) {
+					printf("[%d] Stopped %s\n", job_id, segment);
+				}
+				filson_last_cmd_success = 0;
+			} else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+				filson_last_cmd_success = 1;
+			} else {
+				filson_last_cmd_success = 0;
+			}
+		}
 	}
 	return 1;
 }
 
 int
-filson_execute(char **args)
+filson_execute(char **args, int background, char *segment)
 {
 	int i;
 
 	if (args[0] == NULL) {
+		filson_last_cmd_success = 1;
 		return 1;
 	}
 	if (filson_arg_count(args) > 1024) {
 		fprintf(stderr, "filson: too many arguments\n");
+		filson_last_cmd_success = 0;
 		return 1;
 	}
 	filson_path_is_safe();
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
+			if (background) {
+				fprintf(stderr, "filson: cannot run built-in in background\n");
+				filson_last_cmd_success = 0;
+				return 1;
+			}
 			return (*builtin_func[i])(args);
 		}
 	}
-	return filson_launch(args);
+	return filson_launch(args, background, segment);
 }
 
 #define FILSON_RL_BUFSIZE 1024
@@ -300,10 +358,12 @@ filson_split_line(char *line)
 void
 filson_loop(void)
 {
-	char *line, **args;
+	char *line, *resolved;
 	int status;
 
+	status = 1;
 	do {
+		filson_reap_background_jobs();
 		printf("filson> ");
 		fflush(stdout);
 		line = filson_read_line();
@@ -311,10 +371,16 @@ filson_loop(void)
 			printf("\n");
 			break;
 		}
-		args = filson_split_line(line);
-		status = filson_execute(args);
+		resolved = filson_resolve_history(line);
+		if (resolved == NULL) {
+			free(line);
+			continue;
+		}
+		filson_add_history(resolved);
+		status = filson_execute_and_chain(resolved);
+		free(resolved);
 		free(line);
-		free(args);
 	} while (status);
+	filson_clear_history();
 }
 
