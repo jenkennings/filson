@@ -305,8 +305,10 @@ filson_loop(void)
 
 	do {
 		printf("filson> ");
+		fflush(stdout);
 		line = filson_read_line();
 		if (line == NULL) {
+			printf("\n");
 			break;
 		}
 		args = filson_split_line(line);
