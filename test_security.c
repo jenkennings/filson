@@ -3,6 +3,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/resource.h>
 
 #define TEST_PASS(name) printf("[PASS] %s\n", name); tests_passed++
 #define TEST_FAIL(name, msg) printf("[FAIL] %s: %s\n", name, msg); tests_failed++
@@ -14,6 +16,7 @@ int filson_is_valid_varname(const char *name);
 int filson_arg_count(char **args);
 int filson_path_is_safe(void);
 int filson_set(char **args);
+int filson_execute_and_chain(char *line);
 
 void
 test_valid_varname_simple(void)
@@ -187,6 +190,96 @@ test_set_with_valid_varname(void)
 	}
 }
 
+void
+test_pipeline_stage_limit(void)
+{
+	int i, result, stderr_backup, devnull;
+	char line[4096];
+	int pos;
+
+	pos = 0;
+	pos += snprintf(line + pos, sizeof(line) - (size_t)pos, "echo x");
+	for (i = 0; i < 80 && pos < (int)sizeof(line) - 8; i++) {
+		pos += snprintf(line + pos, sizeof(line) - (size_t)pos, " | cat");
+	}
+
+	stderr_backup = dup(2);
+	devnull = open("/dev/null", O_WRONLY);
+	dup2(devnull, 2);
+	result = filson_execute_and_chain(line);
+	dup2(stderr_backup, 2);
+	close(devnull);
+	close(stderr_backup);
+
+	if (result != 0) {
+		TEST_PASS("pipeline_stage_limit");
+	} else {
+		TEST_FAIL("pipeline_stage_limit", "Should reject >64 pipeline stages without crashing");
+	}
+}
+
+void
+test_unsafe_path_blocks_exec(void)
+{
+	char *old_path;
+	char *args[] = {"true", NULL};
+	int stderr_backup, devnull, result;
+	extern int filson_last_cmd_success;
+	extern int filson_execute(char **args, int background, char *segment);
+
+	old_path = getenv("PATH");
+	setenv("PATH", ".:/usr/bin:/bin", 1);
+
+	stderr_backup = dup(2);
+	devnull = open("/dev/null", O_WRONLY);
+	dup2(devnull, 2);
+	result = filson_execute(args, 0, "true");
+	dup2(stderr_backup, 2);
+	close(devnull);
+	close(stderr_backup);
+
+	if (old_path != NULL) {
+		setenv("PATH", old_path, 1);
+	}
+
+	if (result == 1 && filson_last_cmd_success == 0) {
+		TEST_PASS("unsafe_path_blocks_exec");
+	} else {
+		TEST_FAIL("unsafe_path_blocks_exec", "Should block external execution when PATH is unsafe");
+	}
+}
+
+void
+test_safe_path_allows_exec(void)
+{
+	char *old_path;
+	char *args[] = {"true", NULL};
+	int stderr_backup, devnull, result;
+	extern int filson_last_cmd_success;
+	extern int filson_execute(char **args, int background, char *segment);
+
+	old_path = getenv("PATH");
+	setenv("PATH", "/usr/bin:/bin", 1);
+
+	stderr_backup = dup(2);
+	devnull = open("/dev/null", O_WRONLY);
+	dup2(devnull, 2);
+	result = filson_execute(args, 0, "true");
+	dup2(stderr_backup, 2);
+	close(devnull);
+	close(stderr_backup);
+
+	if (old_path != NULL) {
+		setenv("PATH", old_path, 1);
+	}
+
+	if (result == 1 && filson_last_cmd_success == 1) {
+		TEST_PASS("safe_path_allows_exec");
+	} else {
+		TEST_FAIL("safe_path_allows_exec", "Should allow external execution when PATH is safe");
+	}
+}
+
 int
 main(void)
 {
@@ -210,6 +303,11 @@ main(void)
 	test_set_with_invalid_varname();
 	test_set_with_special_char_varname();
 	test_set_with_valid_varname();
+	printf("\n=== Pipeline Security ===\n");
+	test_pipeline_stage_limit();
+	printf("\n=== PATH Enforcement ===\n");
+	test_unsafe_path_blocks_exec();
+	test_safe_path_allows_exec();
 	printf("\n╔════════════════════════════════════════╗\n");
 	printf("║          TEST RESULTS SUMMARY         ║\n");
 	printf("╠════════════════════════════════════════╣\n");

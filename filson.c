@@ -1,4 +1,5 @@
 #include <sys/wait.h>
+#include <sys/select.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -8,6 +9,7 @@
 #include "jobcontrol.h"
 #include "pipelines.h"
 #include "autocomplete.h"
+#include "globbing.h"
 
 int filson_cd(char **args);
 int filson_help(char **args);
@@ -108,7 +110,7 @@ filson_path_is_safe(void)
 	token = strtok(path_copy, ":");
 	while (token != NULL) {
 		if (strcmp(token, ".") == 0 || strcmp(token, "") == 0) {
-			fprintf(stderr, "filson: warning - current directory in PATH\n");
+			fprintf(stderr, "filson: error - unsafe PATH: current directory entry found; refusing external execution\n");
 			safe = 0;
 			break;
 		}
@@ -217,10 +219,12 @@ filson_launch(char **args, int background, char *segment)
 	pid_t pid;
 	int status;
 	int job_id;
+	char **expanded;
 
 	pid = fork();
 	if (pid == 0) {
-		if (execvp(args[0], args) == -1) {
+		expanded = filson_expand_globs(args);
+		if (execvp(expanded[0], expanded) == -1) {
 			perror("filson");
 		}
 		exit(EXIT_FAILURE);
@@ -271,7 +275,10 @@ filson_execute(char **args, int background, char *segment)
 		filson_last_cmd_success = 0;
 		return 1;
 	}
-	filson_path_is_safe();
+	if (!filson_path_is_safe()) {
+		filson_last_cmd_success = 0;
+		return 1;
+	}
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
 			if (background) {
@@ -287,6 +294,7 @@ filson_execute(char **args, int background, char *segment)
 
 #define FILSON_RL_BUFSIZE 1024
 #define FILSON_PROMPT "filson> "
+#define FILSON_IDLE_TIMEOUT_SECS (45 * 60)
 
 static void
 filson_refresh_line(const char *buffer)
@@ -303,6 +311,9 @@ filson_read_line(void)
 	char *buffer;
 	const char *history_entry;
 	struct termios oldt, newt;
+	fd_set rfds;
+	struct timeval tv;
+	int ready;
 
 	bufsize = FILSON_RL_BUFSIZE;
 	position = 0;
@@ -323,6 +334,19 @@ filson_read_line(void)
 		tcsetattr(STDIN_FILENO, TCSANOW, &newt);
 	}
 	while (1) {
+		if (interactive) {
+			FD_ZERO(&rfds);
+			FD_SET(STDIN_FILENO, &rfds);
+			tv.tv_sec = FILSON_IDLE_TIMEOUT_SECS;
+			tv.tv_usec = 0;
+			ready = select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv);
+			if (ready == 0) {
+				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+				free(buffer);
+				fprintf(stderr, "\nfilson: idle timeout (45 minutes) — session ended\n");
+				return NULL;
+			}
+		}
 		c = getchar();
 		if (interactive && c == 27) {
 			int next1, next2;

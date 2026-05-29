@@ -8,13 +8,15 @@ TEST_EXEC = test_builtins
 TEST_ENV_EXEC = test_environment_variables
 TEST_SEC_EXEC = test_security
 TEST_PIPE_EXEC = test_pipelines
+TEST_GLOB_EXEC = test_globbing
 
 # Source files
-MAIN_SRC = filson.c history.c jobcontrol.c pipelines.c autocomplete.c filson_main.c
+MAIN_SRC = filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c filson_main.c
 TEST_SRC = test_builtins.c
 TEST_ENV_SRC = test_environment_variables.c
 TEST_SEC_SRC = test_security.c
 TEST_PIPE_SRC = test_pipelines.c
+TEST_GLOB_SRC = test_globbing.c
 
 # Object files
 MAIN_OBJ = filson.o
@@ -34,28 +36,33 @@ $(MAIN_EXEC): $(MAIN_SRC)
 	@echo "✓ Built $(MAIN_EXEC)"
 
 # Build test_builtins
-$(TEST_EXEC): $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_EXEC) $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+$(TEST_EXEC): $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_EXEC) $(TEST_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
 	@echo "✓ Built $(TEST_EXEC)"
 
 # Build test_environment_variables
-$(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+$(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
 	@echo "✓ Built $(TEST_ENV_EXEC)"
 
 # Build test_security
-$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
 	@echo "✓ Built $(TEST_SEC_EXEC)"
 
 # Build test_pipelines
-$(TEST_PIPE_EXEC): $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_PIPE_EXEC) $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c
+$(TEST_PIPE_EXEC): $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_PIPE_EXEC) $(TEST_PIPE_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
 	@echo "✓ Built $(TEST_PIPE_EXEC)"
+
+# Build test_globbing
+$(TEST_GLOB_EXEC): $(TEST_GLOB_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_GLOB_EXEC) $(TEST_GLOB_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
+	@echo "✓ Built $(TEST_GLOB_EXEC)"
 
 # Run tests
 .PHONY: test
-test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC)
+test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC)
 	@echo "\n=== Running Built-in Tests ==="
 	./$(TEST_EXEC)
 	@echo "\n=== Running Environment Variable Tests ==="
@@ -64,6 +71,8 @@ test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC)
 	./$(TEST_SEC_EXEC)
 	@echo "\n=== Running Pipelines Tests ==="
 	./$(TEST_PIPE_EXEC)
+	@echo "\n=== Running Globbing Tests ==="
+	./$(TEST_GLOB_EXEC)
 
 # Run only built-in tests
 .PHONY: test-builtins
@@ -89,6 +98,12 @@ test-pipelines: $(TEST_PIPE_EXEC)
 	@echo "\n=== Running Pipelines Tests ==="
 	./$(TEST_PIPE_EXEC)
 
+# Run only globbing tests
+.PHONY: test-globbing
+test-globbing: $(TEST_GLOB_EXEC)
+	@echo "\n=== Running Globbing Tests ==="
+	./$(TEST_GLOB_EXEC)
+
 # Build and run main shell
 .PHONY: run
 run: $(MAIN_EXEC)
@@ -98,7 +113,7 @@ run: $(MAIN_EXEC)
 # Clean build artifacts
 .PHONY: clean
 clean:
-	rm -f $(MAIN_EXEC) $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC)
+	rm -f $(MAIN_EXEC) $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC)
 	rm -f *.o *.a *.so
 	rm -f /tmp/echo_output.txt /tmp/help_output.txt
 	@echo "✓ Cleaned build artifacts"
@@ -107,6 +122,12 @@ clean:
 .PHONY: build
 build: $(MAIN_EXEC) $(TEST_EXEC) $(TEST_ENV_EXEC)
 	@echo "✓ All builds complete"
+
+# Install
+.PHONY: install
+install: $(MAIN_EXEC)
+	cp $(MAIN_EXEC) /bin/$(MAIN_EXEC)
+	@echo "✓ Installed $(MAIN_EXEC) to /bin/$(MAIN_EXEC)"
 
 # Help target
 .PHONY: help
@@ -131,4 +152,4 @@ help:
 	@echo "  make clean test   - Clean then run tests"
 
 # Phony targets that don't represent files
-.PHONY: all test run build clean help test-builtins test-env test-security test-pipelines
+.PHONY: all test run build clean help install test-builtins test-env test-security test-pipelines

@@ -6,6 +6,22 @@
 #include <sys/stat.h>
 #include "autocomplete.h"
 
+static void
+filson_print_safe(const char *s)
+{
+	while (*s != '\0') {
+		unsigned char c;
+
+		c = (unsigned char)*s;
+		if (c < 0x20 || c == 0x7f) {
+			putchar('?');
+		} else {
+			putchar(c);
+		}
+		s++;
+	}
+}
+
 #define FILSON_RL_BUFSIZE 1024
 
 struct filson_match_list {
@@ -357,7 +373,7 @@ filson_handle_autocomplete(char **buffer, int *bufsize, int *position,
 	}
 	printf("\n");
 	for (i = 0; i < matches.count; i++) {
-		printf("%s", matches.items[i]);
+		filson_print_safe(matches.items[i]);
 		if (i + 1 < matches.count) {
 			printf("  ");
 		}

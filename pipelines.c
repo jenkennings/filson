@@ -247,6 +247,11 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 			has_redir = 1;
 		}
 	}
+	if (stage_count > 64) {
+		fprintf(stderr, "filson: too many pipeline stages (max 64)\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
 	if (stage_count == 1 && !has_redir) {
 		segment = filson_join_tokens(tokens, start, end);
 		if (segment == NULL) {
@@ -269,6 +274,11 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 	j = 0;
 	for (i = start; i < end; i++) {
 		if (strcmp(tokens[i], "|") == 0) {
+			if (j + 1 >= 64) {
+				fprintf(stderr, "filson: too many pipeline stages (max 64)\n");
+				filson_last_cmd_success = 0;
+				return 1;
+			}
 			j++;
 			continue;
 		}
