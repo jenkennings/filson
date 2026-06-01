@@ -1430,27 +1430,56 @@ filson_read_line(void)
 			int next1, next2;
 
 			next1 = getchar();
-			next2 = getchar();
-			if (next1 == '[' && (next2 == 'A' || next2 == 'B' || next2 == 'C' || next2 == 'D')) {
-				if (next2 == 'A' && history_cursor > 0) {
-					history_cursor--;
-				} else if (next2 == 'B' && history_cursor < history_count) {
-					history_cursor++;
-				} else if (next2 == 'C' && cursor < position) {
-					cursor++;
-					filson_refresh_line_cursor(buffer, cursor);
-					continue;
-				} else if (next2 == 'D' && cursor > 0) {
-					cursor--;
-					filson_refresh_line_cursor(buffer, cursor);
-					continue;
-				}
-				if (history_cursor >= 0 && history_cursor < history_count) {
-					history_entry = filson_history_get(history_cursor);
-					if (history_entry == NULL) {
-						history_entry = "";
+			if (next1 == '[') {
+				next2 = getchar();
+				if (next2 == 'A' || next2 == 'B' || next2 == 'C' || next2 == 'D') {
+					if (next2 == 'A' && history_cursor > 0) {
+						history_cursor--;
+					} else if (next2 == 'B' && history_cursor < history_count) {
+						history_cursor++;
+					} else if (next2 == 'C' && cursor < position) {
+						cursor++;
+						filson_refresh_line_cursor(buffer, cursor);
+						continue;
+					} else if (next2 == 'D' && cursor > 0) {
+						cursor--;
+						filson_refresh_line_cursor(buffer, cursor);
+						continue;
 					}
-					while ((int)strlen(history_entry) >= bufsize) {
+					if (history_cursor >= 0 && history_cursor < history_count) {
+						history_entry = filson_history_get(history_cursor);
+						if (history_entry == NULL) {
+							history_entry = "";
+						}
+						while ((int)strlen(history_entry) >= bufsize) {
+							bufsize += FILSON_RL_BUFSIZE;
+							buffer = realloc(buffer, bufsize);
+							if (!buffer) {
+								fprintf(stderr, "filson: allocation error\n");
+								exit(EXIT_FAILURE);
+							}
+						}
+						strcpy(buffer, history_entry);
+						position = strlen(buffer);
+						cursor = position;
+					} else {
+						position = 0;
+						cursor = 0;
+						buffer[0] = '\0';
+					}
+					filson_refresh_line_cursor(buffer, cursor);
+				}
+			} else if (next1 == 's' || next1 == 'S') {
+				if (strncmp(buffer, "sudo ", 5) == 0) {
+					memmove(buffer, buffer + 5, position - 5 + 1);
+					position -= 5;
+					if (cursor > 5) {
+						cursor -= 5;
+					} else {
+						cursor = 0;
+					}
+				} else {
+					while (position + 5 >= bufsize - 1) {
 						bufsize += FILSON_RL_BUFSIZE;
 						buffer = realloc(buffer, bufsize);
 						if (!buffer) {
@@ -1458,15 +1487,54 @@ filson_read_line(void)
 							exit(EXIT_FAILURE);
 						}
 					}
-					strcpy(buffer, history_entry);
-					position = strlen(buffer);
-					cursor = position;
-				} else {
-					position = 0;
-					cursor = 0;
-					buffer[0] = '\0';
+					memmove(buffer + 5, buffer, position + 1);
+					memcpy(buffer, "sudo ", 5);
+					position += 5;
+					cursor += 5;
 				}
 				filson_refresh_line_cursor(buffer, cursor);
+			} else if (next1 == '#') {
+				if (strncmp(buffer, "# ", 2) == 0) {
+					memmove(buffer, buffer + 2, position - 2 + 1);
+					position -= 2;
+					if (cursor > 2) {
+						cursor -= 2;
+					} else {
+						cursor = 0;
+					}
+				} else {
+					while (position + 2 >= bufsize - 1) {
+						bufsize += FILSON_RL_BUFSIZE;
+						buffer = realloc(buffer, bufsize);
+						if (!buffer) {
+							fprintf(stderr, "filson: allocation error\n");
+							exit(EXIT_FAILURE);
+						}
+					}
+					memmove(buffer + 2, buffer, position + 1);
+					memcpy(buffer, "# ", 2);
+					position += 2;
+					cursor += 2;
+				}
+				filson_refresh_line_cursor(buffer, cursor);
+			} else if (next1 == 'i' || next1 == 'I') {
+				char pwd[256];
+				if (getcwd(pwd, sizeof(pwd)) != NULL) {
+					int pwd_len = strlen(pwd);
+					while (position + pwd_len >= bufsize - 1) {
+						bufsize += FILSON_RL_BUFSIZE;
+						buffer = realloc(buffer, bufsize);
+						if (!buffer) {
+							fprintf(stderr, "filson: allocation error\n");
+							exit(EXIT_FAILURE);
+						}
+					}
+					memmove(buffer + cursor + pwd_len, buffer + cursor, position - cursor + 1);
+					memcpy(buffer + cursor, pwd, pwd_len);
+					cursor += pwd_len;
+					position += pwd_len;
+					filson_refresh_line_cursor(buffer, cursor);
+				}
 			}
 			continue;
 		}
