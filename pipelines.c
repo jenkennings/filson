@@ -11,6 +11,159 @@ extern int filson_last_cmd_success;
 extern int filson_execute(char **args, int background, char *segment);
 extern char **filson_split_line(char *line);
 
+static char *
+filson_read_command_output(FILE *fp)
+{
+	char chunk[256];
+	char *out;
+	size_t cap, len, n, i;
+	char *tmp;
+
+	cap = 256;
+	len = 0;
+	out = malloc(cap);
+	if (out == NULL) {
+		return NULL;
+	}
+	out[0] = '\0';
+	while (fgets(chunk, sizeof(chunk), fp) != NULL) {
+		n = strlen(chunk);
+		if (len + n + 1 > cap) {
+			while (len + n + 1 > cap) {
+				cap *= 2;
+			}
+			tmp = realloc(out, cap);
+			if (tmp == NULL) {
+				free(out);
+				return NULL;
+			}
+			out = tmp;
+		}
+		memcpy(out + len, chunk, n);
+		len += n;
+		out[len] = '\0';
+	}
+	while (len > 0 && out[len - 1] == '\n') {
+		len--;
+	}
+	for (i = 0; i < len; i++) {
+		if (out[i] == '\n') {
+			out[i] = ' ';
+		}
+	}
+	out[len] = '\0';
+	return out;
+}
+
+static char *
+filson_run_subcommand(const char *cmd)
+{
+	FILE *fp;
+	char *out;
+
+	fp = popen(cmd, "r");
+	if (fp == NULL) {
+		return NULL;
+	}
+	out = filson_read_command_output(fp);
+	pclose(fp);
+	return out;
+}
+
+static char *
+filson_expand_command_substitutions(const char *line)
+{
+	char *out;
+	int i, j, k, depth, in_single, in_double;
+	int len, out_cap, out_len;
+	char *cmd, *cmd_out;
+	char *tmp;
+
+	if (line == NULL) {
+		return NULL;
+	}
+	len = strlen(line);
+	out_cap = (len * 2) + 1;
+	out = malloc(out_cap);
+	if (out == NULL) {
+		return NULL;
+	}
+	out_len = 0;
+	i = 0;
+	in_single = 0;
+	in_double = 0;
+	while (line[i] != '\0') {
+		if (!in_double && line[i] == '\'') {
+			in_single = !in_single;
+		}
+		if (!in_single && line[i] == '"') {
+			in_double = !in_double;
+		}
+		if (!in_single && line[i] == '$' && line[i + 1] == '(') {
+			j = i + 2;
+			depth = 1;
+			while (line[j] != '\0' && depth > 0) {
+				if (line[j] == '(') {
+					depth++;
+				} else if (line[j] == ')') {
+					depth--;
+				}
+				if (depth > 0) {
+					j++;
+				}
+			}
+			if (depth != 0) {
+				free(out);
+				return NULL;
+			}
+			cmd = malloc((j - (i + 2)) + 1);
+			if (cmd == NULL) {
+				free(out);
+				return NULL;
+			}
+			for (k = 0; k < j - (i + 2); k++) {
+				cmd[k] = line[i + 2 + k];
+			}
+			cmd[k] = '\0';
+			cmd_out = filson_run_subcommand(cmd);
+			free(cmd);
+			if (cmd_out == NULL) {
+				free(out);
+				return NULL;
+			}
+			if (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
+				while (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
+					out_cap *= 2;
+				}
+				tmp = realloc(out, out_cap);
+				if (tmp == NULL) {
+					free(cmd_out);
+					free(out);
+					return NULL;
+				}
+				out = tmp;
+			}
+			memcpy(out + out_len, cmd_out, strlen(cmd_out));
+			out_len += strlen(cmd_out);
+			free(cmd_out);
+			i = j + 1;
+			continue;
+		}
+		if (out_len + 2 > out_cap) {
+			out_cap *= 2;
+			tmp = realloc(out, out_cap);
+			if (tmp == NULL) {
+				free(out);
+				return NULL;
+			}
+			out = tmp;
+		}
+		out[out_len++] = line[i++];
+	}
+	out[out_len] = '\0';
+	return out;
+}
+
 char *
 filson_normalize_script_ops(const char *line)
 {
@@ -431,14 +584,22 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 int
 filson_execute_and_chain(char *line)
 {
+	char *expanded;
 	char *normalized;
 	char **args;
 	int i, j;
 	int status, should_run;
 
-	normalized = filson_normalize_script_ops(line);
+	expanded = filson_expand_command_substitutions(line);
+	if (expanded == NULL) {
+		fprintf(stderr, "filson: command substitution error\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	normalized = filson_normalize_script_ops(expanded);
 	if (normalized == NULL) {
 		fprintf(stderr, "filson: allocation error\n");
+		free(expanded);
 		filson_last_cmd_success = 0;
 		return 1;
 	}
@@ -477,5 +638,6 @@ filson_execute_and_chain(char *line)
 	}
 	free(args);
 	free(normalized);
+	free(expanded);
 	return status;
 }

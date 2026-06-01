@@ -313,6 +313,60 @@ test_stderr_append_redirection(void)
 	unlink("/tmp/filson_pipe_err_append.txt");
 }
 
+void
+test_command_substitution_basic(void)
+{
+	FILE *f;
+	char buf[256];
+
+	run_capture("echo $(printf subok)", "/tmp/filson_pipe_test_out.txt");
+	f = fopen("/tmp/filson_pipe_test_out.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("command_substitution_basic", "output file missing");
+		return;
+	}
+	if (fgets(buf, sizeof(buf), f) == NULL) {
+		fclose(f);
+		TEST_FAIL("command_substitution_basic", "output empty");
+		unlink("/tmp/filson_pipe_test_out.txt");
+		return;
+	}
+	fclose(f);
+	if (strstr(buf, "subok") != NULL) {
+		TEST_PASS("command_substitution_basic");
+	} else {
+		TEST_FAIL("command_substitution_basic", "substitution output incorrect");
+	}
+	unlink("/tmp/filson_pipe_test_out.txt");
+}
+
+void
+test_command_substitution_trims_newline(void)
+{
+	FILE *f;
+	char buf[256];
+
+	run_capture("echo x$(printf 'a\\n')y", "/tmp/filson_pipe_test_out.txt");
+	f = fopen("/tmp/filson_pipe_test_out.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("command_substitution_trims_newline", "output file missing");
+		return;
+	}
+	if (fgets(buf, sizeof(buf), f) == NULL) {
+		fclose(f);
+		TEST_FAIL("command_substitution_trims_newline", "output empty");
+		unlink("/tmp/filson_pipe_test_out.txt");
+		return;
+	}
+	fclose(f);
+	if (strstr(buf, "xay") != NULL) {
+		TEST_PASS("command_substitution_trims_newline");
+	} else {
+		TEST_FAIL("command_substitution_trims_newline", "trailing newline not trimmed");
+	}
+	unlink("/tmp/filson_pipe_test_out.txt");
+}
+
 int
 main(void)
 {
@@ -328,6 +382,8 @@ main(void)
 	test_stderr_to_stdout_redirection();
 	test_output_append_redirection();
 	test_stderr_append_redirection();
+	test_command_substitution_basic();
+	test_command_substitution_trims_newline();
 	printf("\nPassed: %d\n", tests_passed);
 	printf("Failed: %d\n", tests_failed);
 	return tests_failed > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
