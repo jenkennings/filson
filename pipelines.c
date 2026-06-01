@@ -7,10 +7,10 @@
 #include "jobcontrol.h"
 #include "pipelines.h"
 #include "globbing.h"
+#include "shell_session.h"
 
 extern int filson_last_cmd_success;
 extern int filson_execute(char **args, int background, char *segment);
-extern char **filson_split_line(char *line);
 extern char *filson_get_pospar(int idx);
 
 static char *

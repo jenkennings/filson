@@ -2,8 +2,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
-
-void filson_loop(void);
+#include "shell_session.h"
 
 int
 main(int argc, char **argv)
