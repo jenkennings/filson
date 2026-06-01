@@ -21,6 +21,8 @@ int filson_clear(char **args);
 int filson_unset(char **args);
 int filson_export(char **args);
 int filson_type(char **args);
+int filson_alias(char **args);
+int filson_ssh(char **args);
 int filson_is_valid_varname(const char *name);
 int filson_path_is_safe(void);
 int filson_arg_count(char **args);
@@ -35,8 +37,6 @@ static int filson_run_command_only(char **args, int background, char *segment);
 static int filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment);
 
 int filson_last_cmd_success = 1;
-
-int filson_alias(char **args);
 
 char *builtin_str[] = {
 	"cd",
@@ -54,7 +54,8 @@ char *builtin_str[] = {
 	"fg",
 	"bg",
 	"wait",
-	"alias"
+	"alias",
+	"ssh"
 };
 
 int (*builtin_func[])(char **) = {
@@ -73,7 +74,8 @@ int (*builtin_func[])(char **) = {
 	&filson_fg,
 	&filson_bg,
 	&filson_wait,
-	&filson_alias
+	&filson_alias,
+	&filson_ssh
 };
 
 int
@@ -736,6 +738,55 @@ filson_alias(char **args)
 	}
 	filson_set_alias(args[1], args[2]);
 	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_ssh(char **args)
+{
+	int argc, i;
+	char **ssh_args;
+	pid_t pid;
+	int status;
+
+	argc = 0;
+	while (args[argc] != NULL) {
+		argc++;
+	}
+	if (argc < 2) {
+		fprintf(stderr, "filson: ssh: usage: ssh [options] [user@]hostname [command]\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	ssh_args = malloc((argc + 1) * sizeof(char *));
+	if (ssh_args == NULL) {
+		perror("filson");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	ssh_args[0] = "ssh";
+	for (i = 1; i < argc; i++) {
+		ssh_args[i] = args[i];
+	}
+	ssh_args[argc] = NULL;
+	pid = fork();
+	if (pid == 0) {
+		execvp("ssh", ssh_args);
+		perror("filson");
+		exit(EXIT_FAILURE);
+	} else if (pid < 0) {
+		perror("filson");
+		free(ssh_args);
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	waitpid(pid, &status, 0);
+	free(ssh_args);
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		filson_last_cmd_success = 1;
+	} else {
+		filson_last_cmd_success = 0;
+	}
 	return 1;
 }
 
