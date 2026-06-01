@@ -23,6 +23,9 @@ int filson_export(char **args);
 int filson_type(char **args);
 int filson_alias(char **args);
 int filson_ssh(char **args);
+int filson_local(char **args);
+int filson_return_stmt(char **args);
+int filson_declare_func(char **args);
 int filson_is_valid_varname(const char *name);
 int filson_path_is_safe(void);
 int filson_arg_count(char **args);
@@ -55,7 +58,10 @@ char *builtin_str[] = {
 	"bg",
 	"wait",
 	"alias",
-	"ssh"
+	"ssh",
+	"local",
+	"return",
+	"declare"
 };
 
 int (*builtin_func[])(char **) = {
@@ -75,7 +81,10 @@ int (*builtin_func[])(char **) = {
 	&filson_bg,
 	&filson_wait,
 	&filson_alias,
-	&filson_ssh
+	&filson_ssh,
+	&filson_local,
+	&filson_return_stmt,
+	&filson_declare_func
 };
 
 int
@@ -188,6 +197,7 @@ filson_set_alias(const char *name, const char *value)
 #define FILSON_MAX_FUNCTIONS 64
 #define FILSON_MAX_POSPARAMS 32
 #define FILSON_FUNC_CALL_DEPTH 8
+#define FILSON_MAX_LOCAL_VARS 16
 
 struct filson_func_entry {
 	int used;
@@ -197,13 +207,23 @@ struct filson_func_entry {
 
 static struct filson_func_entry filson_functions[FILSON_MAX_FUNCTIONS];
 
+struct filson_local_var {
+	char *name;
+	char *value;
+	char *saved_value;
+};
+
 struct filson_param_frame {
 	char *params[FILSON_MAX_POSPARAMS];
 	int count;
+	int return_value;
+	struct filson_local_var local_vars[FILSON_MAX_LOCAL_VARS];
+	int local_count;
 };
 
 static struct filson_param_frame filson_call_stack[FILSON_FUNC_CALL_DEPTH];
 static int filson_call_depth = 0;
+static int filson_function_return_requested = 0;
 
 char *
 filson_get_pospar(int idx)
@@ -272,6 +292,79 @@ filson_lookup_function(const char *name)
 		}
 	}
 	return NULL;
+}
+
+static int
+filson_function_exists(const char *name)
+{
+	return filson_lookup_function(name) != NULL;
+}
+
+static void
+filson_declare_local(const char *name)
+{
+	struct filson_param_frame *fr;
+	int i;
+
+	if (filson_call_depth == 0) {
+		return;
+	}
+	fr = &filson_call_stack[filson_call_depth - 1];
+	for (i = 0; i < fr->local_count; i++) {
+		if (strcmp(fr->local_vars[i].name, name) == 0) {
+			return;
+		}
+	}
+	if (fr->local_count >= FILSON_MAX_LOCAL_VARS) {
+		return;
+	}
+	fr->local_vars[fr->local_count].name = malloc(strlen(name) + 1);
+	if (fr->local_vars[fr->local_count].name != NULL) {
+		strcpy(fr->local_vars[fr->local_count].name, name);
+		fr->local_vars[fr->local_count].value = NULL;
+		fr->local_vars[fr->local_count].saved_value = getenv(name) ? strdup(getenv(name)) : NULL;
+		fr->local_count++;
+	}
+}
+
+static int
+filson_is_local_var(const char *name)
+{
+	struct filson_param_frame *fr;
+	int i;
+
+	if (filson_call_depth == 0) {
+		return 0;
+	}
+	fr = &filson_call_stack[filson_call_depth - 1];
+	for (i = 0; i < fr->local_count; i++) {
+		if (strcmp(fr->local_vars[i].name, name) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static void
+filson_restore_locals(void)
+{
+	struct filson_param_frame *fr;
+	int i;
+
+	if (filson_call_depth == 0) {
+		return;
+	}
+	fr = &filson_call_stack[filson_call_depth - 1];
+	for (i = 0; i < fr->local_count; i++) {
+		if (fr->local_vars[i].saved_value != NULL) {
+			setenv(fr->local_vars[i].name, fr->local_vars[i].saved_value, 1);
+			free(fr->local_vars[i].saved_value);
+		} else {
+			unsetenv(fr->local_vars[i].name);
+		}
+		free(fr->local_vars[i].name);
+	}
+	fr->local_count = 0;
 }
 
 static int filson_call_function(const char *name, char **args);
@@ -605,8 +698,29 @@ filson_clear(char **args)
 int
 filson_unset(char **args)
 {
+	int i;
+
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected argument to \"unset\"\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	if (strcmp(args[1], "-f") == 0) {
+		if (args[2] == NULL) {
+			fprintf(stderr, "filson: unset: -f requires a function name\n");
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+			if (filson_functions[i].used && strcmp(filson_functions[i].name, args[2]) == 0) {
+				free(filson_functions[i].name);
+				free(filson_functions[i].body);
+				filson_functions[i].used = 0;
+				filson_last_cmd_success = 1;
+				return 1;
+			}
+		}
+		fprintf(stderr, "filson: unset: %s: not a function\n", args[2]);
 		filson_last_cmd_success = 0;
 		return 1;
 	}
@@ -787,6 +901,141 @@ filson_ssh(char **args)
 	} else {
 		filson_last_cmd_success = 0;
 	}
+	return 1;
+}
+
+int
+filson_local(char **args)
+{
+	int i;
+
+	if (args[1] == NULL) {
+		fprintf(stderr, "filson: local: usage: local var_name [var_name ...]\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	for (i = 1; args[i] != NULL; i++) {
+		filson_declare_local(args[i]);
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_return_stmt(char **args)
+{
+	int ret_value;
+
+	if (filson_call_depth == 0) {
+		fprintf(stderr, "filson: return: can only be used inside a function\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	ret_value = 0;
+	if (args[1] != NULL) {
+		ret_value = atoi(args[1]);
+	}
+	filson_call_stack[filson_call_depth - 1].return_value = ret_value;
+	filson_function_return_requested = 1;
+	filson_last_cmd_success = (ret_value == 0);
+	return 0;
+}
+
+int
+filson_unset_func(char **args)
+{
+	int i, found;
+
+	if (args[1] == NULL) {
+		fprintf(stderr, "filson: unset: usage: unset -f function_name\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	if (strcmp(args[1], "-f") == 0) {
+		if (args[2] == NULL) {
+			fprintf(stderr, "filson: unset: usage: unset -f function_name\n");
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		found = 0;
+		for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+			if (filson_functions[i].used && strcmp(filson_functions[i].name, args[2]) == 0) {
+				free(filson_functions[i].name);
+				free(filson_functions[i].body);
+				filson_functions[i].used = 0;
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
+			fprintf(stderr, "filson: unset: %s: not a function\n", args[2]);
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+	} else {
+		found = 0;
+		for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+			if (filson_functions[i].used && strcmp(filson_functions[i].name, args[1]) == 0) {
+				free(filson_functions[i].name);
+				free(filson_functions[i].body);
+				filson_functions[i].used = 0;
+				found = 1;
+				break;
+			}
+		}
+		if (found) {
+			filson_last_cmd_success = 1;
+			return 1;
+		}
+		if (strcmp(args[1], "-f") != 0) {
+			unsetenv(args[1]);
+		}
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_declare_func(char **args)
+{
+	int i, show_func;
+
+	show_func = (args[1] != NULL && strcmp(args[1], "-f") == 0);
+	if (show_func) {
+		if (args[2] != NULL) {
+			char *body = filson_lookup_function(args[2]);
+			if (body != NULL) {
+				printf("%s() {\n", args[2]);
+				printf("\t%s\n", body);
+				printf("}\n");
+			} else {
+				fprintf(stderr, "filson: declare: %s: not a function\n", args[2]);
+				filson_last_cmd_success = 0;
+				return 1;
+			}
+		} else {
+			for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+				if (filson_functions[i].used) {
+					printf("%s() {\n", filson_functions[i].name);
+					printf("\t%s\n", filson_functions[i].body);
+					printf("}\n");
+				}
+			}
+		}
+	} else if (args[1] != NULL && strcmp(args[1], "-l") == 0) {
+		for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+			if (filson_functions[i].used) {
+				printf("%s\n", filson_functions[i].name);
+			}
+		}
+	} else {
+		for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+			if (filson_functions[i].used) {
+				printf("declare -f %s\n", filson_functions[i].name);
+			}
+		}
+	}
+	filson_last_cmd_success = 1;
 	return 1;
 }
 
@@ -1062,6 +1311,8 @@ filson_call_function(const char *name, char **args)
 	for (i = 0; i < FILSON_MAX_POSPARAMS; i++) {
 		frame->params[i] = NULL;
 	}
+	frame->return_value = 0;
+	frame->local_count = 0;
 	argc = 0;
 	frame->params[argc++] = (char *)name;
 	for (i = 1; args[i] != NULL && argc < FILSON_MAX_POSPARAMS; i++) {
@@ -1069,8 +1320,11 @@ filson_call_function(const char *name, char **args)
 	}
 	frame->count = argc;
 	filson_call_depth++;
+	filson_function_return_requested = 0;
 	filson_execute_and_chain(body);
+	filson_restore_locals();
 	filson_call_depth--;
+	filson_last_cmd_success = 1;
 	return 1;
 }
 
