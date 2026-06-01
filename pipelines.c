@@ -60,6 +60,24 @@ filson_normalize_script_ops(const char *line)
 				i += 2;
 				continue;
 			}
+			if (line[i] == '2' && line[i + 1] == '>' && line[i + 2] == '&' && line[i + 3] == '1') {
+				out[j++] = ' ';
+				out[j++] = '2';
+				out[j++] = '>';
+				out[j++] = '&';
+				out[j++] = '1';
+				out[j++] = ' ';
+				i += 4;
+				continue;
+			}
+			if (line[i] == '2' && line[i + 1] == '>') {
+				out[j++] = ' ';
+				out[j++] = '2';
+				out[j++] = '>';
+				out[j++] = ' ';
+				i += 2;
+				continue;
+			}
 			if (line[i] == '1' && line[i + 1] == '>') {
 				out[j++] = ' ';
 				out[j++] = '1';
@@ -109,7 +127,7 @@ filson_join_tokens(char **tokens, int start, int end)
 }
 
 static int
-filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int stage_count, int background, const char *segment)
+filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], char *errfiles[], int err_to_out[], int stage_count, int background, const char *segment)
 {
 	int i, j, job_id;
 	int status, pipe_count;
@@ -158,6 +176,19 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int st
 				}
 				dup2(fd_out, 1);
 				close(fd_out);
+			}
+			if (err_to_out[i]) {
+				dup2(1, 2);
+			} else if (errfiles[i] != NULL) {
+				int fd_err;
+
+				fd_err = open(errfiles[i], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+				if (fd_err < 0) {
+					perror("filson");
+					exit(EXIT_FAILURE);
+				}
+				dup2(fd_err, 2);
+				close(fd_err);
 			}
 			for (j = 0; j < pipe_count; j++) {
 				close(pipes[j][0]);
@@ -211,7 +242,8 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 	int i, j, k;
 	int background, stage_count;
 	int pos[64], has_redir;
-	char *infiles[64], *outfiles[64];
+	char *infiles[64], *outfiles[64], *errfiles[64];
+	int err_to_out[64];
 	char *argvbuf[64][256];
 	char **argvv[64];
 	char *segment;
@@ -243,7 +275,7 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 	for (i = start; i < end; i++) {
 		if (strcmp(tokens[i], "|") == 0) {
 			stage_count++;
-		} else if (strcmp(tokens[i], "<") == 0 || strcmp(tokens[i], ">") == 0 || strcmp(tokens[i], "1>") == 0) {
+		} else if (strcmp(tokens[i], "<") == 0 || strcmp(tokens[i], ">") == 0 || strcmp(tokens[i], "1>") == 0 || strcmp(tokens[i], "2>") == 0 || strcmp(tokens[i], "2>&1") == 0) {
 			has_redir = 1;
 		}
 	}
@@ -270,6 +302,8 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 		pos[i] = 0;
 		infiles[i] = NULL;
 		outfiles[i] = NULL;
+		errfiles[i] = NULL;
+		err_to_out[i] = 0;
 	}
 	j = 0;
 	for (i = start; i < end; i++) {
@@ -300,6 +334,21 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 			outfiles[j] = tokens[++i];
 			continue;
 		}
+		if (strcmp(tokens[i], "2>") == 0) {
+			if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
+				fprintf(stderr, "filson: syntax error near unexpected token `2>`\n");
+				filson_last_cmd_success = 0;
+				return 1;
+			}
+			errfiles[j] = tokens[++i];
+			err_to_out[j] = 0;
+			continue;
+		}
+		if (strcmp(tokens[i], "2>&1") == 0) {
+			err_to_out[j] = 1;
+			errfiles[j] = NULL;
+			continue;
+		}
 		if (pos[j] >= 255) {
 			fprintf(stderr, "filson: too many arguments\n");
 			filson_last_cmd_success = 0;
@@ -322,7 +371,7 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 		filson_last_cmd_success = 0;
 		return 1;
 	}
-	k = filson_execute_pipeline(argvv, infiles, outfiles, stage_count, background, segment);
+	k = filson_execute_pipeline(argvv, infiles, outfiles, errfiles, err_to_out, stage_count, background, segment);
 	free(segment);
 	return k;
 }

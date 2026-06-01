@@ -192,6 +192,67 @@ test_input_redirection(void)
 	unlink("/tmp/filson_pipe_in.txt");
 }
 
+void
+test_stderr_redirection(void)
+{
+	FILE *f;
+	char buf[256];
+	char *line;
+
+	line = strdup("ls /tmp/filson_missing_stderr_target 2> /tmp/filson_pipe_err.txt");
+	if (line == NULL) {
+		TEST_FAIL("stderr_redirection", "allocation failed");
+		return;
+	}
+	filson_execute_and_chain(line);
+	free(line);
+	f = fopen("/tmp/filson_pipe_err.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("stderr_redirection", "stderr redirect target missing");
+		return;
+	}
+	if (fgets(buf, sizeof(buf), f) == NULL) {
+		fclose(f);
+		TEST_FAIL("stderr_redirection", "stderr redirect file empty");
+		unlink("/tmp/filson_pipe_err.txt");
+		return;
+	}
+	fclose(f);
+	if (strstr(buf, "No such file") != NULL || strstr(buf, "cannot access") != NULL) {
+		TEST_PASS("stderr_redirection");
+	} else {
+		TEST_FAIL("stderr_redirection", "unexpected stderr content");
+	}
+	unlink("/tmp/filson_pipe_err.txt");
+}
+
+void
+test_stderr_to_stdout_redirection(void)
+{
+	FILE *f;
+	char buf[512];
+
+	run_capture("ls /tmp/filson_missing_merge_target 2>&1", "/tmp/filson_pipe_test_out.txt");
+	f = fopen("/tmp/filson_pipe_test_out.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("stderr_to_stdout_redirection", "capture output missing");
+		return;
+	}
+	if (fgets(buf, sizeof(buf), f) == NULL) {
+		fclose(f);
+		TEST_FAIL("stderr_to_stdout_redirection", "captured output empty");
+		unlink("/tmp/filson_pipe_test_out.txt");
+		return;
+	}
+	fclose(f);
+	if (strstr(buf, "No such file") != NULL || strstr(buf, "cannot access") != NULL) {
+		TEST_PASS("stderr_to_stdout_redirection");
+	} else {
+		TEST_FAIL("stderr_to_stdout_redirection", "stderr was not merged into stdout");
+	}
+	unlink("/tmp/filson_pipe_test_out.txt");
+}
+
 int
 main(void)
 {
@@ -203,6 +264,8 @@ main(void)
 	test_pipeline_execution();
 	test_output_redirection();
 	test_input_redirection();
+	test_stderr_redirection();
+	test_stderr_to_stdout_redirection();
 	printf("\nPassed: %d\n", tests_passed);
 	printf("Failed: %d\n", tests_failed);
 	return tests_failed > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
