@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include "jobcontrol.h"
 #include "pipelines.h"
+#include "globbing.h"
 
 extern int filson_last_cmd_success;
 extern int filson_execute(char **args, int background, char *segment);
@@ -659,8 +660,9 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	int do_pos, body_start, body_end;
 	int var_pos, in_pos, item_start;
 	char *var_name;
-	int i, status;
+	int i, status, item_count;
 	char item_buf[256];
+	char **items, **expanded_items;
 
 	if (!filson_find_loop_do(tokens, start, end, &do_pos)) {
 		fprintf(stderr, "filson: syntax error: missing 'do' in for loop\n");
@@ -686,18 +688,43 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	while (body_end > body_start && strcmp(tokens[body_end - 1], ";") == 0) {
 		body_end--;
 	}
-	status = 1;
+	item_count = 0;
+	items = malloc(sizeof(char *) * 256);
+	if (items == NULL) {
+		fprintf(stderr, "filson: allocation error\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
 	for (i = item_start; i < do_pos; i++) {
 		if (tokens[i] == NULL || strcmp(tokens[i], ";") == 0) {
 			continue;
 		}
-		snprintf(item_buf, sizeof(item_buf), "%s", tokens[i]);
+		if (item_count >= 255) {
+			break;
+		}
+		items[item_count] = strdup(tokens[i]);
+		if (items[item_count] == NULL) {
+			while (item_count > 0) {
+				free(items[--item_count]);
+			}
+			free(items);
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		item_count++;
+	}
+	items[item_count] = NULL;
+	expanded_items = filson_expand_globs(items);
+	status = 1;
+	for (i = 0; expanded_items[i] != NULL; i++) {
+		snprintf(item_buf, sizeof(item_buf), "%s", expanded_items[i]);
 		setenv(var_name, item_buf, 1);
 		status = filson_execute_parsed_segment(tokens, body_start, body_end);
 		if (status == 0) {
 			break;
 		}
 	}
+	filson_free_expanded_args(expanded_items);
 	filson_last_cmd_success = 1;
 	return 1;
 }
