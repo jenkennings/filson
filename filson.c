@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 #include <termios.h>
 #include "history.h"
 #include "jobcontrol.h"
@@ -1339,12 +1340,50 @@ filson_refresh_line(const char *buffer)
 	fflush(stdout);
 }
 
+static void
+filson_refresh_line_cursor(const char *buffer, int cursor)
+{
+	int len, move_left;
+
+	len = strlen(buffer);
+	printf("\r%s%s\033[K", FILSON_PROMPT, buffer);
+	move_left = len - cursor;
+	if (move_left > 0) {
+		printf("\033[%dD", move_left);
+	}
+	fflush(stdout);
+}
+
+static void
+filson_set_kill_buffer(char **kill_buffer, const char *src, int len)
+{
+	char *next;
+
+	if (kill_buffer == NULL) {
+		return;
+	}
+	if (len < 0) {
+		len = 0;
+	}
+	next = malloc(len + 1);
+	if (next == NULL) {
+		return;
+	}
+	if (len > 0) {
+		memcpy(next, src, len);
+	}
+	next[len] = '\0';
+	free(*kill_buffer);
+	*kill_buffer = next;
+}
+
 char *
 filson_read_line(void)
 {
-	int bufsize, position, c;
+	int bufsize, position, cursor, c;
 	int interactive, history_cursor, history_count;
 	char *buffer;
+	char *kill_buffer;
 	const char *history_entry;
 	struct termios oldt, newt;
 	fd_set rfds;
@@ -1353,6 +1392,8 @@ filson_read_line(void)
 
 	bufsize = FILSON_RL_BUFSIZE;
 	position = 0;
+	cursor = 0;
+	kill_buffer = NULL;
 	buffer = malloc(sizeof(char) * bufsize);
 	if (!buffer) {
 		fprintf(stderr, "filson: allocation error\n");
@@ -1378,6 +1419,7 @@ filson_read_line(void)
 			ready = select(STDIN_FILENO + 1, &rfds, NULL, NULL, &tv);
 			if (ready == 0) {
 				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
+				free(kill_buffer);
 				free(buffer);
 				fprintf(stderr, "\nfilson: idle timeout (45 minutes) — session ended\n");
 				return NULL;
@@ -1389,11 +1431,19 @@ filson_read_line(void)
 
 			next1 = getchar();
 			next2 = getchar();
-			if (next1 == '[' && (next2 == 'A' || next2 == 'B')) {
+			if (next1 == '[' && (next2 == 'A' || next2 == 'B' || next2 == 'C' || next2 == 'D')) {
 				if (next2 == 'A' && history_cursor > 0) {
 					history_cursor--;
 				} else if (next2 == 'B' && history_cursor < history_count) {
 					history_cursor++;
+				} else if (next2 == 'C' && cursor < position) {
+					cursor++;
+					filson_refresh_line_cursor(buffer, cursor);
+					continue;
+				} else if (next2 == 'D' && cursor > 0) {
+					cursor--;
+					filson_refresh_line_cursor(buffer, cursor);
+					continue;
 				}
 				if (history_cursor >= 0 && history_cursor < history_count) {
 					history_entry = filson_history_get(history_cursor);
@@ -1410,11 +1460,13 @@ filson_read_line(void)
 					}
 					strcpy(buffer, history_entry);
 					position = strlen(buffer);
+					cursor = position;
 				} else {
 					position = 0;
+					cursor = 0;
 					buffer[0] = '\0';
 				}
-				filson_refresh_line(buffer);
+				filson_refresh_line_cursor(buffer, cursor);
 			}
 			continue;
 		}
@@ -1427,6 +1479,7 @@ filson_read_line(void)
 			if (interactive) {
 				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 			}
+			free(kill_buffer);
 			free(buffer);
 			return NULL;
 		} else if (c == '\n') {
@@ -1435,19 +1488,144 @@ filson_read_line(void)
 				printf("\n");
 			}
 			buffer[position] = '\0';
+			free(kill_buffer);
 			return buffer;
-		} else if (interactive && (c == 127 || c == '\b')) {
-			if (position > 0) {
+		} else if (interactive && c == 1) {
+			cursor = 0;
+			filson_refresh_line_cursor(buffer, cursor);
+		} else if (interactive && c == 5) {
+			cursor = position;
+			filson_refresh_line_cursor(buffer, cursor);
+		} else if (interactive && c == 2) {
+			if (cursor > 0) {
+				cursor--;
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && c == 6) {
+			if (cursor < position) {
+				cursor++;
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && c == 11) {
+			if (cursor < position) {
+				filson_set_kill_buffer(&kill_buffer, buffer + cursor, position - cursor);
+				position = cursor;
+				buffer[position] = '\0';
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && c == 21) {
+			if (cursor > 0) {
+				filson_set_kill_buffer(&kill_buffer, buffer, cursor);
+				memmove(buffer, buffer + cursor, position - cursor + 1);
+				position -= cursor;
+				cursor = 0;
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && c == 23) {
+			int start;
+
+			start = cursor;
+			while (start > 0 && isspace((unsigned char)buffer[start - 1])) {
+				start--;
+			}
+			while (start > 0 && !isspace((unsigned char)buffer[start - 1])) {
+				start--;
+			}
+			if (start < cursor) {
+				filson_set_kill_buffer(&kill_buffer, buffer + start, cursor - start);
+				memmove(buffer + start, buffer + cursor, position - cursor + 1);
+				position -= (cursor - start);
+				cursor = start;
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && c == 25) {
+			int ylen;
+
+			if (kill_buffer != NULL) {
+				ylen = strlen(kill_buffer);
+				while (position + ylen >= bufsize - 1) {
+					bufsize += FILSON_RL_BUFSIZE;
+					buffer = realloc(buffer, bufsize);
+					if (!buffer) {
+						fprintf(stderr, "filson: allocation error\n");
+						exit(EXIT_FAILURE);
+					}
+				}
+				memmove(buffer + cursor + ylen, buffer + cursor, position - cursor + 1);
+				memcpy(buffer + cursor, kill_buffer, ylen);
+				cursor += ylen;
+				position += ylen;
+				filson_refresh_line_cursor(buffer, cursor);
+				history_cursor = history_count;
+			}
+		} else if (interactive && c == 12) {
+			printf("\033[2J\033[H");
+			filson_refresh_line_cursor(buffer, cursor);
+		} else if (interactive && c == 16) {
+			if (history_cursor > 0) {
+				history_cursor--;
+				if (history_cursor >= 0 && history_cursor < history_count) {
+					history_entry = filson_history_get(history_cursor);
+					if (history_entry == NULL) {
+						history_entry = "";
+					}
+					while ((int)strlen(history_entry) >= bufsize) {
+						bufsize += FILSON_RL_BUFSIZE;
+						buffer = realloc(buffer, bufsize);
+						if (!buffer) {
+							fprintf(stderr, "filson: allocation error\n");
+							exit(EXIT_FAILURE);
+						}
+					}
+					strcpy(buffer, history_entry);
+					position = strlen(buffer);
+					cursor = position;
+					filson_refresh_line_cursor(buffer, cursor);
+				}
+			}
+		} else if (interactive && c == 14) {
+			if (history_cursor < history_count) {
+				history_cursor++;
+				if (history_cursor >= 0 && history_cursor < history_count) {
+					history_entry = filson_history_get(history_cursor);
+					if (history_entry == NULL) {
+						history_entry = "";
+					}
+					while ((int)strlen(history_entry) >= bufsize) {
+						bufsize += FILSON_RL_BUFSIZE;
+						buffer = realloc(buffer, bufsize);
+						if (!buffer) {
+							fprintf(stderr, "filson: allocation error\n");
+							exit(EXIT_FAILURE);
+						}
+					}
+					strcpy(buffer, history_entry);
+					position = strlen(buffer);
+					cursor = position;
+				} else {
+					position = 0;
+					cursor = 0;
+					buffer[0] = '\0';
+				}
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && c == 4) {
+			if (cursor < position) {
+				memmove(buffer + cursor, buffer + cursor + 1, position - cursor);
 				position--;
 				buffer[position] = '\0';
+				filson_refresh_line_cursor(buffer, cursor);
+			}
+		} else if (interactive && (c == 127 || c == '\b' || c == 8)) {
+			if (cursor > 0) {
+				memmove(buffer + cursor - 1, buffer + cursor, position - cursor + 1);
+				cursor--;
+				position--;
 				history_cursor = history_count;
-				filson_refresh_line(buffer);
+				filson_refresh_line_cursor(buffer, cursor);
 			}
 		} else if (interactive && c >= 32 && c <= 126) {
-			buffer[position] = (char)c;
-			position++;
-			buffer[position] = '\0';
-			if (position >= bufsize - 1) {
+			if (position >= bufsize - 2) {
 				bufsize += FILSON_RL_BUFSIZE;
 				buffer = realloc(buffer, bufsize);
 				if (!buffer) {
@@ -1455,8 +1633,12 @@ filson_read_line(void)
 					exit(EXIT_FAILURE);
 				}
 			}
+			memmove(buffer + cursor + 1, buffer + cursor, position - cursor + 1);
+			buffer[cursor] = (char)c;
+			position++;
+			cursor++;
 			history_cursor = history_count;
-			filson_refresh_line(buffer);
+			filson_refresh_line_cursor(buffer, cursor);
 		} else {
 			if (!interactive) {
 				buffer[position] = c;
