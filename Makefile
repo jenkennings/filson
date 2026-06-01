@@ -9,6 +9,7 @@ TEST_ENV_EXEC = test_environment_variables
 TEST_SEC_EXEC = test_security
 TEST_PIPE_EXEC = test_pipelines
 TEST_GLOB_EXEC = test_globbing
+TEST_SCRIPT_EXEC = test_script_execution
 
 # Source files
 MAIN_SRC = filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c filson_main.c
@@ -17,6 +18,7 @@ TEST_ENV_SRC = test_environment_variables.c
 TEST_SEC_SRC = test_security.c
 TEST_PIPE_SRC = test_pipelines.c
 TEST_GLOB_SRC = test_globbing.c
+TEST_SCRIPT_SRC = test_script_execution.c
 
 # Object files
 MAIN_OBJ = filson.o
@@ -60,9 +62,14 @@ $(TEST_GLOB_EXEC): $(TEST_GLOB_SRC) filson.c history.c jobcontrol.c pipelines.c 
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_GLOB_EXEC) $(TEST_GLOB_SRC) filson.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c
 	@echo "✓ Built $(TEST_GLOB_EXEC)"
 
+# Build test_script_execution
+$(TEST_SCRIPT_EXEC): $(TEST_SCRIPT_SRC) $(MAIN_SRC)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SCRIPT_EXEC) $(TEST_SCRIPT_SRC)
+	@echo "✓ Built $(TEST_SCRIPT_EXEC)"
+
 # Run tests
 .PHONY: test
-test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC)
+test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC) $(TEST_SCRIPT_EXEC)
 	@echo "\n=== Running Built-in Tests ==="
 	./$(TEST_EXEC)
 	@echo "\n=== Running Environment Variable Tests ==="
@@ -73,6 +80,8 @@ test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GL
 	./$(TEST_PIPE_EXEC)
 	@echo "\n=== Running Globbing Tests ==="
 	./$(TEST_GLOB_EXEC)
+	@echo "\n=== Running Script Execution Tests ==="
+	./$(TEST_SCRIPT_EXEC)
 
 # Run only built-in tests
 .PHONY: test-builtins
@@ -104,6 +113,12 @@ test-globbing: $(TEST_GLOB_EXEC)
 	@echo "\n=== Running Globbing Tests ==="
 	./$(TEST_GLOB_EXEC)
 
+# Run only script execution tests
+.PHONY: test-script
+test-script: $(TEST_SCRIPT_EXEC) $(MAIN_EXEC)
+	@echo "\n=== Running Script Execution Tests ==="
+	./$(TEST_SCRIPT_EXEC)
+
 # Build and run main shell
 .PHONY: run
 run: $(MAIN_EXEC)
@@ -113,7 +128,7 @@ run: $(MAIN_EXEC)
 # Clean build artifacts
 .PHONY: clean
 clean:
-	rm -f $(MAIN_EXEC) $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC)
+	rm -f $(MAIN_EXEC) $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC) $(TEST_SCRIPT_EXEC)
 	rm -f *.o *.a *.so
 	rm -f /tmp/echo_output.txt /tmp/help_output.txt
 	@echo "✓ Cleaned build artifacts"
