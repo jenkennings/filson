@@ -48,6 +48,21 @@ count_args(char **args)
 }
 
 void
+cleanup_args(char **args, char **result)
+{
+	int i;
+
+	if (result != args) {
+		filson_free_expanded_args(result);
+		return;
+	}
+	for (i = 0; args[i] != NULL; i++) {
+		free(args[i]);
+	}
+	free(args);
+}
+
+void
 setup_test_files(void)
 {
 	system("mkdir -p " TEST_DIR);
@@ -66,7 +81,6 @@ cleanup_test_files(void)
 void
 test_no_glob_patterns(void)
 {
-	char *line = "ls file1.txt";
 	char **args = malloc(3 * sizeof(char *));
 	args[0] = malloc(3);
 	strcpy(args[0], "ls");
@@ -78,14 +92,7 @@ test_no_glob_patterns(void)
 	assert_true("no_glob_returns_same_args", count_args(result) == 2);
 	assert_equal("no_glob_first_arg", "ls", result[0]);
 	assert_equal("no_glob_second_arg", "file1.txt", result[1]);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args);
-	}
+	cleanup_args(args, result);
 }
 
 void
@@ -95,7 +102,6 @@ test_asterisk_glob(void)
 	getcwd(cwd, sizeof(cwd));
 	chdir(TEST_DIR);
 
-	char *line = "ls *.txt";
 	char **args = malloc(3 * sizeof(char *));
 	args[0] = malloc(3);
 	strcpy(args[0], "ls");
@@ -111,14 +117,7 @@ test_asterisk_glob(void)
 		strstr(result[1], "file1") != NULL || 
 		strstr(result[2], "file1") != NULL ||
 		strstr(result[3], "file1") != NULL);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args);
-	}
+	cleanup_args(args, result);
 
 	chdir(cwd);
 }
@@ -142,14 +141,7 @@ test_question_mark_glob(void)
 	
 	assert_true("question_mark_glob_expands", count >= 3);
 	assert_equal("question_mark_first_arg", "ls", result[0]);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args);
-	}
+	cleanup_args(args, result);
 
 	chdir(cwd);
 }
@@ -177,15 +169,7 @@ test_mixed_patterns_and_literals(void)
 	assert_equal("mixed_patterns_first_arg", "ls", result[0]);
 	assert_true("mixed_patterns_contains_literal",
 		strcmp(result[count - 1], "test1.c") == 0);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args[2]);
-		free(args);
-	}
+	cleanup_args(args, result);
 
 	chdir(cwd);
 }
@@ -207,14 +191,7 @@ test_no_matches_pattern(void)
 	char **result = filson_expand_globs(args);
 	assert_true("no_matches_returns_pattern", 
 		strstr(result[1], "nonexist") != NULL);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args);
-	}
+	cleanup_args(args, result);
 
 	chdir(cwd);
 }
@@ -236,14 +213,7 @@ test_globbing_with_command(void)
 	char **result = filson_expand_globs(args);
 	assert_equal("globbing_with_command_first_arg", "echo", result[0]);
 	assert_true("globbing_with_command_expands", count_args(result) >= 3);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args);
-	}
+	cleanup_args(args, result);
 
 	chdir(cwd);
 }
@@ -267,14 +237,7 @@ test_bracket_glob(void)
 	
 	assert_true("bracket_glob_expands", count >= 2);
 	assert_equal("bracket_glob_first_arg", "ls", result[0]);
-
-	if (result != args) {
-		filson_free_expanded_args(result);
-	} else {
-		free(args[0]);
-		free(args[1]);
-		free(args);
-	}
+	cleanup_args(args, result);
 
 	chdir(cwd);
 }
