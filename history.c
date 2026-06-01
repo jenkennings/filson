@@ -11,6 +11,91 @@ extern int filson_last_cmd_success;
 static char *filson_history_entries[FILSON_HISTORY_SIZE];
 static int filson_history_count = 0;
 
+static const char *
+filson_history_last_entry(void)
+{
+	if (filson_history_count == 0) {
+		return NULL;
+	}
+	return filson_history_entries[filson_history_count - 1];
+}
+
+static char *
+filson_history_last_arg(const char *line)
+{
+	int start, end, i;
+	char *arg;
+
+	if (line == NULL) {
+		return NULL;
+	}
+	end = (int)strlen(line) - 1;
+	while (end >= 0 && isspace((unsigned char)line[end])) {
+		end--;
+	}
+	if (end < 0) {
+		return strdup("");
+	}
+	start = end;
+	while (start >= 0 && !isspace((unsigned char)line[start])) {
+		start--;
+	}
+	start++;
+	if (line[start] == '"' && line[end] == '"' && end > start) {
+		start++;
+		end--;
+	} else if (line[start] == '\'' && line[end] == '\'' && end > start) {
+		start++;
+		end--;
+	}
+	arg = malloc((end - start + 2));
+	if (arg == NULL) {
+		return NULL;
+	}
+	for (i = start; i <= end; i++) {
+		arg[i - start] = line[i];
+	}
+	arg[end - start + 1] = '\0';
+	return arg;
+}
+
+static char *
+filson_expand_last_arg_token(const char *line, const char *last_arg)
+{
+	int i, count, new_len, j;
+	char *expanded;
+
+	if (line == NULL || last_arg == NULL) {
+		return NULL;
+	}
+	count = 0;
+	for (i = 0; line[i] != '\0'; i++) {
+		if (line[i] == '!' && line[i + 1] == '$') {
+			count++;
+			i++;
+		}
+	}
+	if (count == 0) {
+		return strdup(line);
+	}
+	new_len = (int)strlen(line) + count * ((int)strlen(last_arg) - 2);
+	expanded = malloc(new_len + 1);
+	if (expanded == NULL) {
+		return NULL;
+	}
+	for (i = 0, j = 0; line[i] != '\0'; i++) {
+		if (line[i] == '!' && line[i + 1] == '$') {
+			memcpy(expanded + j, last_arg, strlen(last_arg));
+			j += strlen(last_arg);
+			i++;
+		} else {
+			expanded[j++] = line[i];
+		}
+	}
+	expanded[j] = '\0';
+	return expanded;
+}
+
 int
 filson_history_count_entries(void)
 {
@@ -115,15 +200,27 @@ filson_resolve_history(char *line)
 {
 	char *trimmed;
 	char *endptr;
+	char *last_arg;
+	char *expanded;
+	const char *last_entry;
 	long idx;
 
 	trimmed = filson_trim(line);
-	if (strcmp(trimmed, "!!") == 0) {
-		if (filson_history_count == 0) {
+	if (strcmp(trimmed, "!") == 0) {
+		last_entry = filson_history_last_entry();
+		if (last_entry == NULL) {
 			fprintf(stderr, "filson: no commands in history\n");
 			return NULL;
 		}
-		return strdup(filson_history_entries[filson_history_count - 1]);
+		return strdup(last_entry);
+	}
+	if (strcmp(trimmed, "!!") == 0) {
+		last_entry = filson_history_last_entry();
+		if (last_entry == NULL) {
+			fprintf(stderr, "filson: no commands in history\n");
+			return NULL;
+		}
+		return strdup(last_entry);
 	}
 	if (trimmed[0] == '!' && trimmed[1] != '\0') {
 		idx = strtol(trimmed + 1, &endptr, 10);
@@ -132,6 +229,20 @@ filson_resolve_history(char *line)
 			return NULL;
 		}
 		return strdup(filson_history_entries[idx - 1]);
+	}
+	if (strstr(trimmed, "!$") != NULL) {
+		last_entry = filson_history_last_entry();
+		if (last_entry == NULL) {
+			fprintf(stderr, "filson: no commands in history\n");
+			return NULL;
+		}
+		last_arg = filson_history_last_arg(last_entry);
+		if (last_arg == NULL) {
+			return NULL;
+		}
+		expanded = filson_expand_last_arg_token(trimmed, last_arg);
+		free(last_arg);
+		return expanded;
 	}
 	return strdup(trimmed);
 }

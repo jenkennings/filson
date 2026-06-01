@@ -1702,6 +1702,7 @@ void
 filson_loop(void)
 {
 	char *line, *resolved, *hd_line, *func_body;
+	char *trimmed;
 	char func_name[256];
 	int func_needs_more;
 	int status;
@@ -1715,6 +1716,22 @@ filson_loop(void)
 		if (line == NULL) {
 			printf("\n");
 			break;
+		}
+		trimmed = filson_trim(line);
+		if (strcmp(trimmed, "!") == 0) {
+			const char *last_entry;
+
+			if (filson_history_count_entries() == 0) {
+				fprintf(stderr, "filson: no commands in history\n");
+				free(line);
+				continue;
+			}
+			last_entry = filson_history_get(filson_history_count_entries() - 1);
+			if (last_entry != NULL) {
+				printf("%s\n", last_entry);
+			}
+			free(line);
+			continue;
 		}
 		resolved = filson_resolve_history(line);
 		if (resolved == NULL) {

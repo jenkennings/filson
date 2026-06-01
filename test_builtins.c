@@ -18,6 +18,9 @@ int filson_exit(char **args);
 int filson_set(char **args);
 int filson_echo(char **args);
 int filson_num_builtins(void);
+void filson_add_history(const char *line);
+void filson_clear_history(void);
+char *filson_resolve_history(char *line);
 
 void
 test_cd_no_args(void)
@@ -445,6 +448,61 @@ test_echo_return_value(void)
 	}
 }
 
+void
+test_history_expand_bangbang(void)
+{
+	char *line, *resolved;
+
+	filson_clear_history();
+	filson_add_history("echo hello");
+	line = strdup("!!");
+	resolved = filson_resolve_history(line);
+	if (resolved != NULL && strcmp(resolved, "echo hello") == 0) {
+		TEST_PASS("history_expand_bangbang");
+	} else {
+		TEST_FAIL("history_expand_bangbang", "!! did not resolve to last command");
+	}
+	free(line);
+	free(resolved);
+	filson_clear_history();
+}
+
+void
+test_history_expand_last_arg(void)
+{
+	char *line, *resolved;
+
+	filson_clear_history();
+	filson_add_history("echo alpha beta");
+	line = strdup("echo !$");
+	resolved = filson_resolve_history(line);
+	if (resolved != NULL && strcmp(resolved, "echo beta") == 0) {
+		TEST_PASS("history_expand_last_arg");
+	} else {
+		TEST_FAIL("history_expand_last_arg", "!$ did not resolve to prior last argument");
+	}
+	free(line);
+	free(resolved);
+	filson_clear_history();
+}
+
+void
+test_history_expand_last_arg_without_history(void)
+{
+	char *line, *resolved;
+
+	filson_clear_history();
+	line = strdup("echo !$");
+	resolved = filson_resolve_history(line);
+	if (resolved == NULL) {
+		TEST_PASS("history_expand_last_arg_without_history");
+	} else {
+		TEST_FAIL("history_expand_last_arg_without_history", "Expected failure with empty history");
+	}
+	free(line);
+	free(resolved);
+}
+
 int
 main(void)
 {
@@ -475,6 +533,10 @@ main(void)
 	test_echo_no_args();
 	test_echo_multiple_variables();
 	test_echo_return_value();
+	TEST_SECTION("HISTORY EXPANSION");
+	test_history_expand_bangbang();
+	test_history_expand_last_arg();
+	test_history_expand_last_arg_without_history();
 	printf("\n╔════════════════════════════════════════╗\n");
 	printf("║          TEST RESULTS SUMMARY         ║\n");
 	printf("╠════════════════════════════════════════╣\n");
