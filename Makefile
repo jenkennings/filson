@@ -69,7 +69,7 @@ $(TEST_SCRIPT_EXEC): $(TEST_SCRIPT_SRC) $(MAIN_SRC)
 
 # Run tests
 .PHONY: test
-test: $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC) $(TEST_SCRIPT_EXEC)
+test: $(MAIN_EXEC) $(TEST_EXEC) $(TEST_ENV_EXEC) $(TEST_SEC_EXEC) $(TEST_PIPE_EXEC) $(TEST_GLOB_EXEC) $(TEST_SCRIPT_EXEC)
 	@echo "\n=== Running Built-in Tests ==="
 	./$(TEST_EXEC)
 	@echo "\n=== Running Environment Variable Tests ==="

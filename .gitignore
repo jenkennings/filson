@@ -3,6 +3,10 @@ filson
 test_builtins
 test_env
 test_environment_variables
+test_globbing
+test_pipelines
+test_security
+test_script_execution
 *.o
 *.a
 *.so
