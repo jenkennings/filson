@@ -1333,6 +1333,75 @@ filson_call_function(const char *name, char **args)
 #define FILSON_PROMPT "filson> "
 #define FILSON_IDLE_TIMEOUT_SECS (45 * 60)
 
+enum filson_keycode {
+	FILSON_KEY_CTRL_A = 1,
+	FILSON_KEY_CTRL_B = 2,
+	FILSON_KEY_CTRL_D = 4,
+	FILSON_KEY_CTRL_E = 5,
+	FILSON_KEY_CTRL_F = 6,
+	FILSON_KEY_CTRL_K = 11,
+	FILSON_KEY_CTRL_L = 12,
+	FILSON_KEY_CTRL_N = 14,
+	FILSON_KEY_CTRL_P = 16,
+	FILSON_KEY_CTRL_S = 19,
+	FILSON_KEY_CTRL_U = 21,
+	FILSON_KEY_CTRL_W = 23,
+	FILSON_KEY_CTRL_Y = 25,
+	FILSON_KEY_TAB = '\t',
+	FILSON_KEY_NEWLINE = '\n',
+	FILSON_KEY_BACKSPACE = 8,
+	FILSON_KEY_BACKSPACE_DEL = 127,
+	FILSON_KEY_ESCAPE = 27,
+	FILSON_KEY_PRINTABLE_MIN = 32,
+	FILSON_KEY_PRINTABLE_MAX = 126
+};
+
+enum filson_esc_code {
+	FILSON_ESC_CSI = '[',
+	FILSON_ESC_UP = 'A',
+	FILSON_ESC_DOWN = 'B',
+	FILSON_ESC_RIGHT = 'C',
+	FILSON_ESC_LEFT = 'D'
+};
+
+static void
+filson_print_startup_banner(void)
+{
+	int use_color;
+	char *no_color;
+
+	if (!isatty(STDIN_FILENO) || !isatty(STDOUT_FILENO)) {
+		return;
+	}
+	no_color = getenv("NO_COLOR");
+	use_color = (no_color == NULL || no_color[0] == '\0');
+	if (use_color) {
+		printf("\033[38;5;153m              .                .\033[0m\n");
+		printf("\033[38;5;153m         .        .       .      \033[0m\n");
+		printf("\033[38;5;250m             /\\        /\\       \033[0m\n");
+		printf("\033[38;5;250m            /  \\  /\\  /  \\      \033[0m\n");
+		printf("\033[38;5;250m       /\\  / /\\ \\/  \\/ /\\ \\ /\\  \033[0m\n");
+		printf("\033[38;5;250m      /  \\/_/  \\_/ /\\ \\_  \\/  \\ \033[0m\n");
+		printf("\033[38;5;34m        Y   Y   Y  Y  Y   Y   Y    \033[0m\n");
+		printf("\033[38;5;34m       YYY YYY YYY YY YYY YYY YYY  \033[0m\n");
+		printf("\033[38;5;94m====================================\033[0m\n");
+		printf("\033[1;38;5;179m              FILSON SHELL\033[0m\n");
+		printf("\n");
+	} else {
+		printf("              .                .\n");
+		printf("         .        .       .\n");
+		printf("             /\\        /\\\n");
+		printf("            /  \\  /\\  /  \\\n");
+		printf("       /\\  / /\\ \\/  \\/ /\\ \\ /\\\n");
+		printf("      /  \\/_/  \\_/ /\\ \\_  \\/  \\\n");
+		printf("        Y   Y   Y  Y  Y   Y   Y\n");
+		printf("       YYY YYY YYY YY YYY YYY YYY\n");
+		printf("====================================\n");
+		printf("              FILSON SHELL\n");
+		printf("\n");
+	}
+}
+
 static void
 filson_refresh_line(const char *buffer)
 {
@@ -1377,10 +1446,47 @@ filson_set_kill_buffer(char **kill_buffer, const char *src, int len)
 	*kill_buffer = next;
 }
 
+static void
+filson_toggle_prefix(char **buffer, int *bufsize, int *position, int *cursor, const char *prefix)
+{
+	int prefix_len;
+
+	if (buffer == NULL || *buffer == NULL || bufsize == NULL || position == NULL ||
+	    cursor == NULL || prefix == NULL) {
+		return;
+	}
+	prefix_len = strlen(prefix);
+	if (prefix_len == 0) {
+		return;
+	}
+	if (strncmp(*buffer, prefix, prefix_len) == 0) {
+		memmove(*buffer, *buffer + prefix_len, *position - prefix_len + 1);
+		*position -= prefix_len;
+		if (*cursor > prefix_len) {
+			*cursor -= prefix_len;
+		} else {
+			*cursor = 0;
+		}
+		return;
+	}
+	while (*position + prefix_len >= *bufsize - 1) {
+		*bufsize += FILSON_RL_BUFSIZE;
+		*buffer = realloc(*buffer, *bufsize);
+		if (!*buffer) {
+			fprintf(stderr, "filson: allocation error\n");
+			exit(EXIT_FAILURE);
+		}
+	}
+	memmove(*buffer + prefix_len, *buffer, *position + 1);
+	memcpy(*buffer, prefix, prefix_len);
+	*position += prefix_len;
+	*cursor += prefix_len;
+}
+
 char *
 filson_read_line(void)
 {
-	int bufsize, position, cursor, c;
+	int bufsize, position, cursor, key;
 	int interactive, history_cursor, history_count;
 	char *buffer;
 	char *kill_buffer;
@@ -1406,6 +1512,7 @@ filson_read_line(void)
 	if (interactive) {
 		newt = oldt;
 		newt.c_lflag &= ~(ICANON | ECHO);
+		newt.c_iflag &= ~(IXON | IXOFF);
 		newt.c_cc[VMIN] = 1;
 		newt.c_cc[VTIME] = 0;
 		tcsetattr(STDIN_FILENO, TCSANOW, &newt);
@@ -1425,23 +1532,24 @@ filson_read_line(void)
 				return NULL;
 			}
 		}
-		c = getchar();
-		if (interactive && c == 27) {
-			int next1, next2;
+		key = getchar();
+		if (interactive && key == FILSON_KEY_ESCAPE) {
+			int esc1, esc2;
 
-			next1 = getchar();
-			if (next1 == '[') {
-				next2 = getchar();
-				if (next2 == 'A' || next2 == 'B' || next2 == 'C' || next2 == 'D') {
-					if (next2 == 'A' && history_cursor > 0) {
+			esc1 = getchar();
+			if (esc1 == FILSON_ESC_CSI) {
+				esc2 = getchar();
+				if (esc2 == FILSON_ESC_UP || esc2 == FILSON_ESC_DOWN ||
+				    esc2 == FILSON_ESC_RIGHT || esc2 == FILSON_ESC_LEFT) {
+					if (esc2 == FILSON_ESC_UP && history_cursor > 0) {
 						history_cursor--;
-					} else if (next2 == 'B' && history_cursor < history_count) {
+					} else if (esc2 == FILSON_ESC_DOWN && history_cursor < history_count) {
 						history_cursor++;
-					} else if (next2 == 'C' && cursor < position) {
+					} else if (esc2 == FILSON_ESC_RIGHT && cursor < position) {
 						cursor++;
 						filson_refresh_line_cursor(buffer, cursor);
 						continue;
-					} else if (next2 == 'D' && cursor > 0) {
+					} else if (esc2 == FILSON_ESC_LEFT && cursor > 0) {
 						cursor--;
 						filson_refresh_line_cursor(buffer, cursor);
 						continue;
@@ -1469,55 +1577,13 @@ filson_read_line(void)
 					}
 					filson_refresh_line_cursor(buffer, cursor);
 				}
-			} else if (next1 == 's' || next1 == 'S') {
-				if (strncmp(buffer, "sudo ", 5) == 0) {
-					memmove(buffer, buffer + 5, position - 5 + 1);
-					position -= 5;
-					if (cursor > 5) {
-						cursor -= 5;
-					} else {
-						cursor = 0;
-					}
-				} else {
-					while (position + 5 >= bufsize - 1) {
-						bufsize += FILSON_RL_BUFSIZE;
-						buffer = realloc(buffer, bufsize);
-						if (!buffer) {
-							fprintf(stderr, "filson: allocation error\n");
-							exit(EXIT_FAILURE);
-						}
-					}
-					memmove(buffer + 5, buffer, position + 1);
-					memcpy(buffer, "sudo ", 5);
-					position += 5;
-					cursor += 5;
-				}
+			} else if (esc1 == 's' || esc1 == 'S') {
+				filson_toggle_prefix(&buffer, &bufsize, &position, &cursor, "sudo ");
 				filson_refresh_line_cursor(buffer, cursor);
-			} else if (next1 == '#') {
-				if (strncmp(buffer, "# ", 2) == 0) {
-					memmove(buffer, buffer + 2, position - 2 + 1);
-					position -= 2;
-					if (cursor > 2) {
-						cursor -= 2;
-					} else {
-						cursor = 0;
-					}
-				} else {
-					while (position + 2 >= bufsize - 1) {
-						bufsize += FILSON_RL_BUFSIZE;
-						buffer = realloc(buffer, bufsize);
-						if (!buffer) {
-							fprintf(stderr, "filson: allocation error\n");
-							exit(EXIT_FAILURE);
-						}
-					}
-					memmove(buffer + 2, buffer, position + 1);
-					memcpy(buffer, "# ", 2);
-					position += 2;
-					cursor += 2;
-				}
+			} else if (esc1 == '#') {
+				filson_toggle_prefix(&buffer, &bufsize, &position, &cursor, "# ");
 				filson_refresh_line_cursor(buffer, cursor);
-			} else if (next1 == 'i' || next1 == 'I') {
+			} else if (esc1 == 'i' || esc1 == 'I') {
 				char pwd[256];
 				if (getcwd(pwd, sizeof(pwd)) != NULL) {
 					int pwd_len = strlen(pwd);
@@ -1538,19 +1604,19 @@ filson_read_line(void)
 			}
 			continue;
 		}
-		if (interactive && c == '\t') {
+		if (interactive && key == FILSON_KEY_TAB) {
 			filson_handle_autocomplete(&buffer, &bufsize, &position,
 				builtin_str, filson_num_builtins(), filson_refresh_line);
 			continue;
 		}
-		if (c == EOF || (interactive && c == 4 && position == 0)) {
+		if (key == EOF || (interactive && key == FILSON_KEY_CTRL_D && position == 0)) {
 			if (interactive) {
 				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 			}
 			free(kill_buffer);
 			free(buffer);
 			return NULL;
-		} else if (c == '\n') {
+		} else if (key == FILSON_KEY_NEWLINE) {
 			if (interactive) {
 				tcsetattr(STDIN_FILENO, TCSANOW, &oldt);
 				printf("\n");
@@ -1558,30 +1624,33 @@ filson_read_line(void)
 			buffer[position] = '\0';
 			free(kill_buffer);
 			return buffer;
-		} else if (interactive && c == 1) {
+		} else if (interactive && key == FILSON_KEY_CTRL_A) {
 			cursor = 0;
 			filson_refresh_line_cursor(buffer, cursor);
-		} else if (interactive && c == 5) {
+		} else if (interactive && key == FILSON_KEY_CTRL_E) {
 			cursor = position;
 			filson_refresh_line_cursor(buffer, cursor);
-		} else if (interactive && c == 2) {
+		} else if (interactive && key == FILSON_KEY_CTRL_B) {
 			if (cursor > 0) {
 				cursor--;
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c == 6) {
+		} else if (interactive && key == FILSON_KEY_CTRL_F) {
 			if (cursor < position) {
 				cursor++;
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c == 11) {
+		} else if (interactive && key == FILSON_KEY_CTRL_S) {
+			filson_toggle_prefix(&buffer, &bufsize, &position, &cursor, "sudo ");
+			filson_refresh_line_cursor(buffer, cursor);
+		} else if (interactive && key == FILSON_KEY_CTRL_K) {
 			if (cursor < position) {
 				filson_set_kill_buffer(&kill_buffer, buffer + cursor, position - cursor);
 				position = cursor;
 				buffer[position] = '\0';
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c == 21) {
+		} else if (interactive && key == FILSON_KEY_CTRL_U) {
 			if (cursor > 0) {
 				filson_set_kill_buffer(&kill_buffer, buffer, cursor);
 				memmove(buffer, buffer + cursor, position - cursor + 1);
@@ -1589,7 +1658,7 @@ filson_read_line(void)
 				cursor = 0;
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c == 23) {
+		} else if (interactive && key == FILSON_KEY_CTRL_W) {
 			int start;
 
 			start = cursor;
@@ -1606,7 +1675,7 @@ filson_read_line(void)
 				cursor = start;
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c == 25) {
+		} else if (interactive && key == FILSON_KEY_CTRL_Y) {
 			int ylen;
 
 			if (kill_buffer != NULL) {
@@ -1626,10 +1695,10 @@ filson_read_line(void)
 				filson_refresh_line_cursor(buffer, cursor);
 				history_cursor = history_count;
 			}
-		} else if (interactive && c == 12) {
+		} else if (interactive && key == FILSON_KEY_CTRL_L) {
 			printf("\033[2J\033[H");
 			filson_refresh_line_cursor(buffer, cursor);
-		} else if (interactive && c == 16) {
+		} else if (interactive && key == FILSON_KEY_CTRL_P) {
 			if (history_cursor > 0) {
 				history_cursor--;
 				if (history_cursor >= 0 && history_cursor < history_count) {
@@ -1651,7 +1720,7 @@ filson_read_line(void)
 					filson_refresh_line_cursor(buffer, cursor);
 				}
 			}
-		} else if (interactive && c == 14) {
+		} else if (interactive && key == FILSON_KEY_CTRL_N) {
 			if (history_cursor < history_count) {
 				history_cursor++;
 				if (history_cursor >= 0 && history_cursor < history_count) {
@@ -1677,14 +1746,15 @@ filson_read_line(void)
 				}
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c == 4) {
+		} else if (interactive && key == FILSON_KEY_CTRL_D) {
 			if (cursor < position) {
 				memmove(buffer + cursor, buffer + cursor + 1, position - cursor);
 				position--;
 				buffer[position] = '\0';
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && (c == 127 || c == '\b' || c == 8)) {
+		} else if (interactive && (key == FILSON_KEY_BACKSPACE_DEL || key == '\b' ||
+		    key == FILSON_KEY_BACKSPACE)) {
 			if (cursor > 0) {
 				memmove(buffer + cursor - 1, buffer + cursor, position - cursor + 1);
 				cursor--;
@@ -1692,7 +1762,8 @@ filson_read_line(void)
 				history_cursor = history_count;
 				filson_refresh_line_cursor(buffer, cursor);
 			}
-		} else if (interactive && c >= 32 && c <= 126) {
+		} else if (interactive && key >= FILSON_KEY_PRINTABLE_MIN &&
+		    key <= FILSON_KEY_PRINTABLE_MAX) {
 			if (position >= bufsize - 2) {
 				bufsize += FILSON_RL_BUFSIZE;
 				buffer = realloc(buffer, bufsize);
@@ -1702,14 +1773,14 @@ filson_read_line(void)
 				}
 			}
 			memmove(buffer + cursor + 1, buffer + cursor, position - cursor + 1);
-			buffer[cursor] = (char)c;
+			buffer[cursor] = (char)key;
 			position++;
 			cursor++;
 			history_cursor = history_count;
 			filson_refresh_line_cursor(buffer, cursor);
 		} else {
 			if (!interactive) {
-				buffer[position] = c;
+				buffer[position] = key;
 				position++;
 				if (position >= bufsize) {
 					bufsize += FILSON_RL_BUFSIZE;
@@ -1957,6 +2028,7 @@ filson_loop(void)
 	int func_needs_more;
 	int status;
 
+	filson_print_startup_banner();
 	status = 1;
 	do {
 		filson_reap_background_jobs();
