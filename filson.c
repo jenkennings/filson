@@ -333,16 +333,22 @@ int
 filson_help(char **args)
 {
 	int i;
+	char buf[4096];
+	int buf_len;
 
 	(void)args;
 	filson_last_cmd_success = 1;
-	printf("Bryan Copley's Filson\n");
-	printf("Type program names and arguments, and hit enter.\n");
-	printf("The following are built in:\n");
+	buf_len = 0;
+	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Bryan Copley's Filson\n");
+	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Type program names and arguments, and hit enter.\n");
+	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "The following are built in:\n");
 	for (i = 0; i < filson_num_builtins(); i++) {
-		printf("  %s\n", builtin_str[i]);
+		buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "  %s\n", builtin_str[i]);
 	}
-	printf("Use the man command for information on other programs.\n");
+	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Use the man command for information on other programs.\n");
+	if (buf_len > 0) {
+		write(1, buf, buf_len);
+	}
 	return 1;
 }
 
@@ -381,22 +387,31 @@ filson_echo(char **args)
 {
 	int i, first;
 	char *expanded;
+	char buf[8192];
+	int buf_len;
 
 	i = 1;
 	first = 1;
+	buf_len = 0;
 	while (args[i] != NULL) {
-		if (!first) {
-			printf(" ");
+		if (!first && buf_len < (int)sizeof(buf) - 1) {
+			buf[buf_len++] = ' ';
 		}
 		first = 0;
 		expanded = filson_expand_string_variables(args[i]);
-		printf("%s", expanded);
+		const char *str = expanded;
+		while (*str && buf_len < (int)sizeof(buf) - 1) {
+			buf[buf_len++] = *str++;
+		}
 		if (expanded != args[i]) {
 			free(expanded);
 		}
 		i++;
 	}
-	printf("\n");
+	if (buf_len < (int)sizeof(buf) - 1) {
+		buf[buf_len++] = '\n';
+	}
+	write(1, buf, buf_len);
 	filson_last_cmd_success = 1;
 	return 1;
 }

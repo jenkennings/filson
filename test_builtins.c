@@ -86,7 +86,7 @@ test_help_lists_builtins(void)
 	int found_header, found_cd;
 
 	stdout_backup = dup(1);
-	temp_file = open("/tmp/help_output.txt", O_WRONLY | O_CREAT, 0644);
+	temp_file = open("/tmp/help_output.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	dup2(temp_file, 1);
 	result = filson_help(args);
 	dup2(stdout_backup, 1);
