@@ -31,6 +31,7 @@ static int filson_is_assignment_token(const char *token);
 static int filson_parse_assignment_token(const char *token, char **name_out, const char **value_out);
 static char *filson_expand_parameter(const char *arg);
 static void filson_expand_arguments(char **args);
+static char *filson_expand_string_variables(const char *str);
 static char *filson_lookup_alias(const char *name);
 static int filson_run_command_only(char **args, int background, char *segment);
 static int filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment);
@@ -308,6 +309,97 @@ filson_expand_parameter(const char *arg)
 	return strdup(arg);
 }
 
+static char *
+filson_expand_string_variables(const char *str)
+{
+	int i, j, output_len, input_len;
+	char *output, *var_name, *var_value;
+	int var_len;
+	const char *bracket_end;
+
+	if (str == NULL) {
+		return strdup("");
+	}
+	input_len = strlen(str);
+	output = malloc(input_len * 2 + 1);
+	if (output == NULL) {
+		return strdup(str);
+	}
+	j = 0;
+	for (i = 0; str[i] != '\0'; i++) {
+		if (str[i] == '$' && str[i + 1] != '\0') {
+			if (str[i + 1] == '{') {
+				bracket_end = strchr(&str[i + 2], '}');
+				if (bracket_end != NULL) {
+					var_len = bracket_end - &str[i + 2];
+					var_name = malloc(var_len + 1);
+					if (var_name != NULL) {
+						memcpy(var_name, &str[i + 2], var_len);
+						var_name[var_len] = '\0';
+						var_value = getenv(var_name);
+						if (var_value != NULL) {
+							int val_len = strlen(var_value);
+							if (j + val_len > input_len * 2) {
+								output = realloc(output, j + val_len + 256);
+								if (output == NULL) {
+									free(var_name);
+									return strdup(str);
+								}
+							}
+							strcpy(&output[j], var_value);
+							j += val_len;
+						}
+						free(var_name);
+						i += var_len + 2;
+						continue;
+					}
+				}
+			} else if ((str[i + 1] >= 'a' && str[i + 1] <= 'z') ||
+				   (str[i + 1] >= 'A' && str[i + 1] <= 'Z') ||
+				   str[i + 1] == '_') {
+				var_len = 0;
+				while (str[i + 1 + var_len] != '\0' &&
+				       ((str[i + 1 + var_len] >= 'a' && str[i + 1 + var_len] <= 'z') ||
+					(str[i + 1 + var_len] >= 'A' && str[i + 1 + var_len] <= 'Z') ||
+					(str[i + 1 + var_len] >= '0' && str[i + 1 + var_len] <= '9') ||
+					str[i + 1 + var_len] == '_')) {
+					var_len++;
+				}
+				var_name = malloc(var_len + 1);
+				if (var_name != NULL) {
+					memcpy(var_name, &str[i + 1], var_len);
+					var_name[var_len] = '\0';
+					var_value = getenv(var_name);
+					if (var_value != NULL) {
+						int val_len = strlen(var_value);
+						if (j + val_len > input_len * 2) {
+							output = realloc(output, j + val_len + 256);
+							if (output == NULL) {
+								free(var_name);
+								return strdup(str);
+							}
+						}
+						strcpy(&output[j], var_value);
+						j += val_len;
+					}
+					i += var_len;
+					free(var_name);
+					continue;
+				}
+			}
+		}
+		if (j >= input_len * 2) {
+			output = realloc(output, j + 256);
+			if (output == NULL) {
+				return strdup(str);
+			}
+		}
+		output[j++] = str[i];
+	}
+	output[j] = '\0';
+	return output;
+}
+
 static void
 filson_expand_arguments(char **args)
 {
@@ -318,7 +410,7 @@ filson_expand_arguments(char **args)
 		return;
 	}
 	for (i = 0; args[i] != NULL; i++) {
-		expanded = filson_expand_parameter(args[i]);
+		expanded = filson_expand_string_variables(args[i]);
 		if (expanded != args[i]) {
 			old = args[i];
 			args[i] = expanded;
@@ -395,6 +487,7 @@ int
 filson_echo(char **args)
 {
 	int i, first;
+	char *expanded;
 
 	i = 1;
 	first = 1;
@@ -403,7 +496,11 @@ filson_echo(char **args)
 			printf(" ");
 		}
 		first = 0;
-		printf("%s", args[i]);
+		expanded = filson_expand_string_variables(args[i]);
+		printf("%s", expanded);
+		if (expanded != args[i]) {
+			free(expanded);
+		}
 		i++;
 	}
 	printf("\n");
