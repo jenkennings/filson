@@ -183,6 +183,97 @@ filson_set_alias(const char *name, const char *value)
 	strcpy(filson_aliases[empty_slot].value, value);
 }
 
+#define FILSON_MAX_FUNCTIONS 64
+#define FILSON_MAX_POSPARAMS 32
+#define FILSON_FUNC_CALL_DEPTH 8
+
+struct filson_func_entry {
+	int used;
+	char *name;
+	char *body;
+};
+
+static struct filson_func_entry filson_functions[FILSON_MAX_FUNCTIONS];
+
+struct filson_param_frame {
+	char *params[FILSON_MAX_POSPARAMS];
+	int count;
+};
+
+static struct filson_param_frame filson_call_stack[FILSON_FUNC_CALL_DEPTH];
+static int filson_call_depth = 0;
+
+char *
+filson_get_pospar(int idx)
+{
+	struct filson_param_frame *fr;
+
+	if (filson_call_depth == 0) {
+		return NULL;
+	}
+	fr = &filson_call_stack[filson_call_depth - 1];
+	if (idx < 0 || idx >= fr->count) {
+		return NULL;
+	}
+	return fr->params[idx];
+}
+
+static void
+filson_define_function(const char *name, const char *body)
+{
+	int i, empty_slot;
+
+	if (name == NULL || body == NULL) {
+		return;
+	}
+	empty_slot = -1;
+	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+		if (filson_functions[i].used && strcmp(filson_functions[i].name, name) == 0) {
+			free(filson_functions[i].body);
+			filson_functions[i].body = malloc(strlen(body) + 1);
+			if (filson_functions[i].body != NULL) {
+				strcpy(filson_functions[i].body, body);
+			}
+			return;
+		}
+		if (!filson_functions[i].used && empty_slot == -1) {
+			empty_slot = i;
+		}
+	}
+	if (empty_slot == -1) {
+		return;
+	}
+	filson_functions[empty_slot].used = 1;
+	filson_functions[empty_slot].name = malloc(strlen(name) + 1);
+	filson_functions[empty_slot].body = malloc(strlen(body) + 1);
+	if (filson_functions[empty_slot].name == NULL || filson_functions[empty_slot].body == NULL) {
+		free(filson_functions[empty_slot].name);
+		free(filson_functions[empty_slot].body);
+		filson_functions[empty_slot].used = 0;
+		return;
+	}
+	strcpy(filson_functions[empty_slot].name, name);
+	strcpy(filson_functions[empty_slot].body, body);
+}
+
+static char *
+filson_lookup_function(const char *name)
+{
+	int i;
+
+	if (name == NULL) {
+		return NULL;
+	}
+	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+		if (filson_functions[i].used && strcmp(filson_functions[i].name, name) == 0) {
+			return filson_functions[i].body;
+		}
+	}
+	return NULL;
+}
+
+static int filson_call_function(const char *name, char **args);
+
 int
 filson_path_is_safe(void)
 {
@@ -294,6 +385,73 @@ filson_expand_string_variables(const char *str)
 					free(var_name);
 					continue;
 				}
+			} else if (str[i + 1] >= '0' && str[i + 1] <= '9') {
+				char *pval;
+				int val_len;
+
+				pval = filson_get_pospar(str[i + 1] - '0');
+				if (pval != NULL) {
+					val_len = strlen(pval);
+					if (j + val_len > input_len * 2) {
+						output = realloc(output, j + val_len + 256);
+						if (output == NULL) {
+							return (char *)str;
+						}
+					}
+					strcpy(&output[j], pval);
+					j += val_len;
+					expansion_found = 1;
+				}
+				i++;
+				continue;
+			} else if (str[i + 1] == '#') {
+				char num_buf[16];
+				int pcount, val_len;
+
+				pcount = (filson_call_depth > 0) ? filson_call_stack[filson_call_depth - 1].count - 1 : 0;
+				if (pcount < 0) {
+					pcount = 0;
+				}
+				snprintf(num_buf, sizeof(num_buf), "%d", pcount);
+				val_len = strlen(num_buf);
+				if (j + val_len > input_len * 2) {
+					output = realloc(output, j + val_len + 256);
+					if (output == NULL) {
+						return (char *)str;
+					}
+				}
+				strcpy(&output[j], num_buf);
+				j += val_len;
+				expansion_found = 1;
+				i++;
+				continue;
+			} else if (str[i + 1] == '@') {
+				struct filson_param_frame *fr;
+				int k, val_len;
+
+				if (filson_call_depth > 0) {
+					fr = &filson_call_stack[filson_call_depth - 1];
+					for (k = 1; k < fr->count; k++) {
+						if (fr->params[k] == NULL) {
+							continue;
+						}
+						val_len = strlen(fr->params[k]);
+						if (j + val_len + 2 > input_len * 2) {
+							output = realloc(output, j + val_len + 256);
+							if (output == NULL) {
+								return (char *)str;
+							}
+						}
+						if (k > 1) {
+							output[j++] = ' ';
+						}
+						strcpy(&output[j], fr->params[k]);
+						j += val_len;
+					}
+					expansion_found = 1;
+				}
+				i++;
+				continue;
 			}
 		}
 		if (j >= input_len * 2) {
@@ -703,6 +861,9 @@ filson_run_command_only(char **args, int background, char *segment)
 		strcpy(new_command, alias_value);
 		args[0] = new_command;
 	}
+	if (filson_lookup_function(args[0]) != NULL) {
+		return filson_call_function(args[0], args);
+	}
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
 			if (background) {
@@ -826,6 +987,40 @@ filson_execute(char **args, int background, char *segment)
 		return filson_run_with_temp_assignments(args, assign_count, background, segment);
 	}
 	return filson_run_command_only(args, background, segment);
+}
+
+static int
+filson_call_function(const char *name, char **args)
+{
+	char *body;
+	struct filson_param_frame *frame;
+	int i, argc;
+
+	body = filson_lookup_function(name);
+	if (body == NULL) {
+		fprintf(stderr, "filson: %s: function not found\n", name);
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	if (filson_call_depth >= FILSON_FUNC_CALL_DEPTH) {
+		fprintf(stderr, "filson: function call stack overflow\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	frame = &filson_call_stack[filson_call_depth];
+	for (i = 0; i < FILSON_MAX_POSPARAMS; i++) {
+		frame->params[i] = NULL;
+	}
+	argc = 0;
+	frame->params[argc++] = (char *)name;
+	for (i = 1; args[i] != NULL && argc < FILSON_MAX_POSPARAMS; i++) {
+		frame->params[argc++] = args[i];
+	}
+	frame->count = argc;
+	filson_call_depth++;
+	filson_execute_and_chain(body);
+	filson_call_depth--;
+	return 1;
 }
 
 #define FILSON_RL_BUFSIZE 1024
@@ -1014,10 +1209,196 @@ filson_split_line(char *line)
 	return tokens;
 }
 
+static char filson_heredoc_tmppath[64] = "";
+
+static int
+filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_pos)
+{
+	int i, in_single, in_double, dstart, dend;
+
+	in_single = 0;
+	in_double = 0;
+	for (i = 0; line[i] != '\0'; i++) {
+		if (!in_double && line[i] == '\'') {
+			in_single = !in_single;
+			continue;
+		}
+		if (!in_single && line[i] == '"') {
+			in_double = !in_double;
+			continue;
+		}
+		if (!in_single && !in_double &&
+		    line[i] == '<' && line[i + 1] == '<' && line[i + 2] != '<') {
+			*start_pos = i;
+			i += 2;
+			while (line[i] == ' ' || line[i] == '\t') {
+				i++;
+			}
+			dstart = i;
+			while (line[i] != '\0' && line[i] != ' ' && line[i] != '\t' &&
+			       line[i] != '\n' && line[i] != ';') {
+				i++;
+			}
+			dend = i;
+			if (dend <= dstart || dend - dstart >= 256) {
+				return 0;
+			}
+			memcpy(delim_out, line + dstart, dend - dstart);
+			delim_out[dend - dstart] = '\0';
+			*end_pos = dend;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static char *
+filson_prepare_heredoc(const char *line)
+{
+	char delim[256];
+	int hd_start, hd_end;
+	char *body_line, *new_line;
+	int fd, n, interactive;
+
+	if (!filson_heredoc_find(line, delim, &hd_start, &hd_end)) {
+		return NULL;
+	}
+	strcpy(filson_heredoc_tmppath, "/tmp/filson_hdoc_XXXXXX");
+	fd = mkstemp(filson_heredoc_tmppath);
+	if (fd < 0) {
+		return NULL;
+	}
+	interactive = isatty(STDIN_FILENO);
+	while (1) {
+		if (interactive) {
+			write(STDOUT_FILENO, "heredoc> ", 9);
+		}
+		body_line = filson_read_line();
+		if (body_line == NULL) {
+			break;
+		}
+		if (strcmp(body_line, delim) == 0) {
+			free(body_line);
+			break;
+		}
+		{
+			char *expanded_line = filson_expand_string_variables(body_line);
+			n = strlen(expanded_line);
+			write(fd, expanded_line, n);
+			write(fd, "\n", 1);
+			if (expanded_line != body_line) {
+				free(expanded_line);
+			}
+		}
+		free(body_line);
+	}
+	close(fd);
+	new_line = malloc(hd_start + strlen(filson_heredoc_tmppath) + (strlen(line) - hd_end) + 4);
+	if (new_line == NULL) {
+		unlink(filson_heredoc_tmppath);
+		filson_heredoc_tmppath[0] = '\0';
+		return NULL;
+	}
+	snprintf(new_line, hd_start + strlen(filson_heredoc_tmppath) + (strlen(line) - hd_end) + 4,
+	    "%.*s< %s%s", hd_start, line, filson_heredoc_tmppath, line + hd_end);
+	return new_line;
+}
+
+static int
+filson_funcdef_parse(const char *line, char *name_out, int name_max,
+    char **body_out, int *needs_more)
+{
+	const char *p, *after_name, *q, *body_start, *body_end, *brace_close;
+	int name_len, depth, body_len;
+
+	p = line;
+	while (*p == ' ' || *p == '\t') {
+		p++;
+	}
+	if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_')) {
+		return 0;
+	}
+	name_len = 0;
+	while ((p[name_len] >= 'a' && p[name_len] <= 'z') ||
+	       (p[name_len] >= 'A' && p[name_len] <= 'Z') ||
+	       (p[name_len] >= '0' && p[name_len] <= '9') ||
+	       p[name_len] == '_') {
+		name_len++;
+	}
+	if (name_len == 0 || name_len >= name_max) {
+		return 0;
+	}
+	after_name = p + name_len;
+	while (*after_name == ' ' || *after_name == '\t') {
+		after_name++;
+	}
+	if (*after_name != '(') {
+		return 0;
+	}
+	after_name++;
+	while (*after_name == ' ' || *after_name == '\t') {
+		after_name++;
+	}
+	if (*after_name != ')') {
+		return 0;
+	}
+	after_name++;
+	while (*after_name == ' ' || *after_name == '\t') {
+		after_name++;
+	}
+	if (*after_name != '{') {
+		return 0;
+	}
+	memcpy(name_out, p, name_len);
+	name_out[name_len] = '\0';
+	q = after_name;
+	depth = 0;
+	brace_close = NULL;
+	while (*q != '\0') {
+		if (*q == '{') {
+			depth++;
+		} else if (*q == '}') {
+			depth--;
+			if (depth == 0) {
+				brace_close = q;
+				break;
+			}
+		}
+		q++;
+	}
+	if (brace_close == NULL) {
+		*needs_more = 1;
+		*body_out = NULL;
+		return 1;
+	}
+	body_start = after_name + 1;
+	body_end = brace_close;
+	while (body_start < body_end &&
+	       (*body_start == ' ' || *body_start == '\t' || *body_start == '\n' || *body_start == ';')) {
+		body_start++;
+	}
+	while (body_end > body_start &&
+	       (*(body_end - 1) == ' ' || *(body_end - 1) == '\t' ||
+	        *(body_end - 1) == ';' || *(body_end - 1) == '\n')) {
+		body_end--;
+	}
+	body_len = body_end - body_start;
+	*body_out = malloc(body_len + 1);
+	if (*body_out == NULL) {
+		return 0;
+	}
+	memcpy(*body_out, body_start, body_len);
+	(*body_out)[body_len] = '\0';
+	*needs_more = 0;
+	return 1;
+}
+
 void
 filson_loop(void)
 {
-	char *line, *resolved;
+	char *line, *resolved, *hd_line, *func_body;
+	char func_name[256];
+	int func_needs_more;
 	int status;
 
 	status = 1;
@@ -1036,7 +1417,84 @@ filson_loop(void)
 			continue;
 		}
 		filson_add_history(resolved);
-		status = filson_execute_and_chain(resolved);
+		if (filson_funcdef_parse(resolved, func_name, sizeof(func_name),
+		    &func_body, &func_needs_more)) {
+			if (func_needs_more) {
+				const char *pp;
+				int depth, accum_len, bufsize;
+				char *accum, *more, *tmp;
+
+				bufsize = strlen(resolved) + 4096;
+				accum = malloc(bufsize);
+				if (accum != NULL) {
+					accum_len = strlen(resolved);
+					strcpy(accum, resolved);
+					depth = 0;
+					pp = resolved;
+					while (*pp != '\0') {
+						if (*pp == '{') {
+							depth++;
+						} else if (*pp == '}') {
+							depth--;
+						}
+						pp++;
+					}
+					while (depth > 0) {
+						if (isatty(STDIN_FILENO)) {
+							write(STDOUT_FILENO, "> ", 2);
+						}
+						more = filson_read_line();
+						if (more == NULL) {
+							break;
+						}
+						if (accum_len + (int)strlen(more) + 4 > bufsize) {
+							bufsize = accum_len + strlen(more) + 4096;
+							tmp = realloc(accum, bufsize);
+							if (tmp == NULL) {
+								free(more);
+								break;
+							}
+							accum = tmp;
+						}
+						accum[accum_len++] = ';';
+						memcpy(accum + accum_len, more, strlen(more));
+						accum_len += strlen(more);
+						accum[accum_len] = '\0';
+						pp = more;
+						while (*pp != '\0') {
+							if (*pp == '{') {
+								depth++;
+							} else if (*pp == '}') {
+								depth--;
+							}
+							pp++;
+						}
+						free(more);
+					}
+					filson_funcdef_parse(accum, func_name, sizeof(func_name),
+					    &func_body, &func_needs_more);
+					free(accum);
+				}
+			}
+			if (func_body != NULL) {
+				filson_define_function(func_name, func_body);
+				free(func_body);
+			}
+			free(resolved);
+			free(line);
+			continue;
+		}
+		hd_line = filson_prepare_heredoc(resolved);
+		if (hd_line != NULL) {
+			status = filson_execute_and_chain(hd_line);
+			free(hd_line);
+			if (filson_heredoc_tmppath[0] != '\0') {
+				unlink(filson_heredoc_tmppath);
+				filson_heredoc_tmppath[0] = '\0';
+			}
+		} else {
+			status = filson_execute_and_chain(resolved);
+		}
 		free(resolved);
 		free(line);
 	} while (status);

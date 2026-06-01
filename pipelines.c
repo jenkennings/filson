@@ -11,6 +11,7 @@
 extern int filson_last_cmd_success;
 extern int filson_execute(char **args, int background, char *segment);
 extern char **filson_split_line(char *line);
+extern char *filson_get_pospar(int idx);
 
 static char *
 filson_read_command_output(FILE *fp)
@@ -106,8 +107,13 @@ filson_parse_factor(const char *expr, int *pos)
 		}
 		memcpy(var_name, expr + *pos, var_len);
 		var_name[var_len] = '\0';
-		var_value = getenv(var_name);
-		factor = var_value != NULL ? atol(var_value) : 0;
+		if (var_len == 1 && var_name[0] >= '0' && var_name[0] <= '9') {
+			char *pval = filson_get_pospar(var_name[0] - '0');
+			factor = pval != NULL ? atol(pval) : 0;
+		} else {
+			var_value = getenv(var_name);
+			factor = var_value != NULL ? atol(var_value) : 0;
+		}
 		*pos += var_len;
 		return factor;
 	}
@@ -388,7 +394,8 @@ filson_normalize_script_ops(const char *line)
 				if (brace_depth > 0) {
 					brace_depth--;
 				}
-			} else if (line[i] == '#' && brace_depth == 0) {
+			} else if (line[i] == '#' && brace_depth == 0 &&
+			    (i == 0 || line[i - 1] == ' ' || line[i - 1] == '\t' || line[i - 1] == ';')) {
 				break;
 			}
 			if (line[i] == '&' && line[i + 1] == '&') {
