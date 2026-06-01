@@ -6,6 +6,8 @@
 #include <fcntl.h>
 
 int filson_set(char **args);
+int filson_execute(char **args, int background, char *segment);
+extern int filson_last_cmd_success;
 
 #define TEST_PASS(name) printf("[PASS] %s\n", name)
 #define TEST_FAIL(name, msg) printf("[FAIL] %s: %s\n", name, msg); failures++
@@ -253,6 +255,71 @@ test_case_sensitivity(void)
 	TEST_PASS("case_sensitivity");
 }
 
+void
+test_inline_assignment_with_command(void)
+{
+	char *args[] = {"INLINE_TEST_VAR=inline_value", "echo", "$INLINE_TEST_VAR", NULL};
+	int stdout_backup, fd_out;
+	FILE *f;
+	char buf[256];
+
+	stdout_backup = dup(1);
+	fd_out = open("/tmp/filson_inline_assign_out.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	dup2(fd_out, 1);
+	filson_execute(args, 0, "INLINE_TEST_VAR=inline_value echo $INLINE_TEST_VAR");
+	fflush(stdout);
+	dup2(stdout_backup, 1);
+	close(fd_out);
+	close(stdout_backup);
+	f = fopen("/tmp/filson_inline_assign_out.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("inline_assignment_with_command", "output file missing");
+		return;
+	}
+	if (fgets(buf, sizeof(buf), f) == NULL) {
+		fclose(f);
+		TEST_FAIL("inline_assignment_with_command", "output empty");
+		unlink("/tmp/filson_inline_assign_out.txt");
+		return;
+	}
+	fclose(f);
+	unlink("/tmp/filson_inline_assign_out.txt");
+	if (strstr(buf, "inline_value") == NULL) {
+		TEST_FAIL("inline_assignment_with_command", "inline value not visible to command");
+		return;
+	}
+	if (getenv("INLINE_TEST_VAR") != NULL) {
+		TEST_FAIL("inline_assignment_with_command", "inline assignment leaked to shell env");
+		unsetenv("INLINE_TEST_VAR");
+		return;
+	}
+	if (!filson_last_cmd_success) {
+		TEST_FAIL("inline_assignment_with_command", "command reported failure");
+		return;
+	}
+	TEST_PASS("inline_assignment_with_command");
+}
+
+void
+test_assignment_only_sets_shell_env(void)
+{
+	char *args[] = {"ONLY_ASSIGN_VAR=only_value", NULL};
+	char *value;
+
+	unsetenv("ONLY_ASSIGN_VAR");
+	filson_execute(args, 0, "ONLY_ASSIGN_VAR=only_value");
+	value = getenv("ONLY_ASSIGN_VAR");
+	if (value == NULL || strcmp(value, "only_value") != 0) {
+		TEST_FAIL("assignment_only_sets_shell_env", "assignment-only form did not persist");
+		return;
+	}
+	if (!filson_last_cmd_success) {
+		TEST_FAIL("assignment_only_sets_shell_env", "assignment-only form reported failure");
+		return;
+	}
+	TEST_PASS("assignment_only_sets_shell_env");
+}
+
 int
 main(void)
 {
@@ -267,6 +334,8 @@ main(void)
 	test_empty_string_value();
 	test_special_characters_in_value();
 	test_case_sensitivity();
+	test_inline_assignment_with_command();
+	test_assignment_only_sets_shell_env();
 	TEST_END;
 	return failures > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
 }

@@ -22,6 +22,11 @@ int filson_arg_count(char **args);
 int filson_execute(char **args, int background, char *segment);
 char **filson_split_line(char *line);
 
+static int filson_is_assignment_token(const char *token);
+static int filson_parse_assignment_token(const char *token, char **name_out, const char **value_out);
+static int filson_run_command_only(char **args, int background, char *segment);
+static int filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment);
+
 int filson_last_cmd_success = 1;
 
 char *builtin_str[] = {
@@ -261,8 +266,52 @@ filson_launch(char **args, int background, char *segment)
 	return 1;
 }
 
-int
-filson_execute(char **args, int background, char *segment)
+static int
+filson_is_assignment_token(const char *token)
+{
+	char *name;
+	const char *value;
+	int ok;
+
+	ok = filson_parse_assignment_token(token, &name, &value);
+	if (ok) {
+		free(name);
+	}
+	return ok;
+}
+
+static int
+filson_parse_assignment_token(const char *token, char **name_out, const char **value_out)
+{
+	const char *eq;
+	char *name;
+	size_t name_len;
+
+	if (token == NULL) {
+		return 0;
+	}
+	eq = strchr(token, '=');
+	if (eq == NULL || eq == token) {
+		return 0;
+	}
+	name_len = (size_t)(eq - token);
+	name = malloc(name_len + 1);
+	if (name == NULL) {
+		return 0;
+	}
+	memcpy(name, token, name_len);
+	name[name_len] = '\0';
+	if (!filson_is_valid_varname(name)) {
+		free(name);
+		return 0;
+	}
+	*name_out = name;
+	*value_out = eq + 1;
+	return 1;
+}
+
+static int
+filson_run_command_only(char **args, int background, char *segment)
 {
 	int i;
 
@@ -290,6 +339,118 @@ filson_execute(char **args, int background, char *segment)
 		}
 	}
 	return filson_launch(args, background, segment);
+}
+
+static int
+filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment)
+{
+	char *names[128];
+	char *old_values[128];
+	int had_old[128];
+	const char *value;
+	const char *old_value;
+	int i;
+	int result;
+
+	if (assign_count > 128) {
+		fprintf(stderr, "filson: too many inline assignments\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	for (i = 0; i < assign_count; i++) {
+		if (!filson_parse_assignment_token(args[i], &names[i], &value)) {
+			filson_last_cmd_success = 0;
+			while (--i >= 0) {
+				free(names[i]);
+				free(old_values[i]);
+			}
+			fprintf(stderr, "filson: invalid inline assignment\n");
+			return 1;
+		}
+		old_value = getenv(names[i]);
+		if (old_value != NULL) {
+			had_old[i] = 1;
+			old_values[i] = strdup(old_value);
+			if (old_values[i] == NULL) {
+				filson_last_cmd_success = 0;
+				free(names[i]);
+				while (--i >= 0) {
+					free(names[i]);
+					free(old_values[i]);
+				}
+				fprintf(stderr, "filson: allocation error\n");
+				return 1;
+			}
+		} else {
+			had_old[i] = 0;
+			old_values[i] = NULL;
+		}
+		if (setenv(names[i], value, 1) != 0) {
+			perror("filson");
+			filson_last_cmd_success = 0;
+			free(names[i]);
+			free(old_values[i]);
+			while (--i >= 0) {
+				unsetenv(names[i]);
+				if (had_old[i]) {
+					setenv(names[i], old_values[i], 1);
+				}
+				free(names[i]);
+				free(old_values[i]);
+			}
+			return 1;
+		}
+	}
+	result = filson_run_command_only(args + assign_count, background, segment);
+	for (i = 0; i < assign_count; i++) {
+		unsetenv(names[i]);
+		if (had_old[i]) {
+			setenv(names[i], old_values[i], 1);
+		}
+		free(names[i]);
+		free(old_values[i]);
+	}
+	return result;
+}
+
+int
+filson_execute(char **args, int background, char *segment)
+{
+	int i;
+	int assign_count;
+	char *name;
+	const char *value;
+
+	if (args[0] == NULL) {
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	assign_count = 0;
+	while (args[assign_count] != NULL && filson_is_assignment_token(args[assign_count])) {
+		assign_count++;
+	}
+	if (assign_count > 0) {
+		if (args[assign_count] == NULL) {
+			for (i = 0; i < assign_count; i++) {
+				if (!filson_parse_assignment_token(args[i], &name, &value)) {
+					fprintf(stderr, "filson: invalid assignment\n");
+					filson_last_cmd_success = 0;
+					return 1;
+				}
+				if (setenv(name, value, 1) != 0) {
+					perror("filson");
+					free(name);
+					filson_last_cmd_success = 0;
+					return 1;
+				}
+				free(name);
+			}
+			filson_last_cmd_success = 1;
+			return 1;
+		}
+		return filson_run_with_temp_assignments(args, assign_count, background, segment);
+	}
+	return filson_run_command_only(args, background, segment);
 }
 
 #define FILSON_RL_BUFSIZE 1024
