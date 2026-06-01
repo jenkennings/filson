@@ -611,6 +611,140 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 static int filson_execute_parsed_segment(char **tokens, int start, int end);
 
 static int
+filson_find_matching_done(char **tokens, int loop_pos, int *done_pos)
+{
+	int i, depth;
+
+	depth = 1;
+	i = loop_pos + 1;
+	while (tokens[i] != NULL && depth > 0) {
+		if (strcmp(tokens[i], "for") == 0 || strcmp(tokens[i], "while") == 0) {
+			depth++;
+		} else if (strcmp(tokens[i], "done") == 0) {
+			depth--;
+		}
+		i++;
+	}
+	if (depth == 0) {
+		*done_pos = i - 1;
+		return 1;
+	}
+	return 0;
+}
+
+static int
+filson_find_loop_do(char **tokens, int start, int end, int *do_pos)
+{
+	int i, depth;
+
+	depth = 0;
+	i = start + 1;
+	while (i < end && tokens[i] != NULL) {
+		if (strcmp(tokens[i], "for") == 0 || strcmp(tokens[i], "while") == 0) {
+			depth++;
+		} else if (strcmp(tokens[i], "done") == 0) {
+			depth--;
+		} else if (strcmp(tokens[i], "do") == 0 && depth == 0) {
+			*do_pos = i;
+			return 1;
+		}
+		i++;
+	}
+	return 0;
+}
+
+static int
+filson_execute_for_loop(char **tokens, int start, int end)
+{
+	int do_pos, body_start, body_end;
+	int var_pos, in_pos, item_start;
+	char *var_name;
+	int i, status;
+	char item_buf[256];
+
+	if (!filson_find_loop_do(tokens, start, end, &do_pos)) {
+		fprintf(stderr, "filson: syntax error: missing 'do' in for loop\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	var_pos = start + 1;
+	if (var_pos >= do_pos || tokens[var_pos] == NULL) {
+		fprintf(stderr, "filson: syntax error: missing variable in for loop\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	var_name = tokens[var_pos];
+	in_pos = var_pos + 1;
+	if (in_pos >= do_pos || tokens[in_pos] == NULL || strcmp(tokens[in_pos], "in") != 0) {
+		fprintf(stderr, "filson: syntax error: missing 'in' in for loop\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	item_start = in_pos + 1;
+	body_start = do_pos + 1;
+	body_end = end - 1;
+	while (body_end > body_start && strcmp(tokens[body_end - 1], ";") == 0) {
+		body_end--;
+	}
+	status = 1;
+	for (i = item_start; i < do_pos; i++) {
+		if (tokens[i] == NULL || strcmp(tokens[i], ";") == 0) {
+			continue;
+		}
+		snprintf(item_buf, sizeof(item_buf), "%s", tokens[i]);
+		setenv(var_name, item_buf, 1);
+		status = filson_execute_parsed_segment(tokens, body_start, body_end);
+		if (status == 0) {
+			break;
+		}
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+static int
+filson_execute_while_loop(char **tokens, int start, int end)
+{
+	int do_pos, cond_start, cond_end;
+	int body_start, body_end;
+	int status;
+
+	if (!filson_find_loop_do(tokens, start, end, &do_pos)) {
+		fprintf(stderr, "filson: syntax error: missing 'do' in while loop\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	cond_start = start + 1;
+	cond_end = do_pos;
+	while (cond_end > cond_start && strcmp(tokens[cond_end - 1], ";") == 0) {
+		cond_end--;
+	}
+	if (cond_start >= cond_end) {
+		fprintf(stderr, "filson: syntax error: empty condition in while loop\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	body_start = do_pos + 1;
+	body_end = end - 1;
+	while (body_end > body_start && strcmp(tokens[body_end - 1], ";") == 0) {
+		body_end--;
+	}
+	status = 1;
+	while (1) {
+		filson_execute_parsed_segment(tokens, cond_start, cond_end);
+		if (!filson_last_cmd_success) {
+			break;
+		}
+		status = filson_execute_parsed_segment(tokens, body_start, body_end);
+		if (status == 0) {
+			break;
+		}
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+static int
 filson_find_matching_fi(char **tokens, int if_pos, int *fi_pos)
 {
 	int i, depth;
@@ -905,6 +1039,7 @@ filson_execute_and_chain(char *line)
 	should_run = 1;
 	i = 0;
 	while (args[i] != NULL) {
+		int done_pos;
 		if (args[i] != NULL && strcmp(args[i], "if") == 0 && should_run) {
 			if (!filson_find_matching_fi(args, i, &fi_pos)) {
 				fprintf(stderr, "filson: syntax error: missing 'fi' for 'if'\n");
@@ -932,8 +1067,62 @@ filson_execute_and_chain(char *line)
 			}
 			continue;
 		}
+		if (args[i] != NULL && strcmp(args[i], "for") == 0 && should_run) {
+			if (!filson_find_matching_done(args, i, &done_pos)) {
+				fprintf(stderr, "filson: syntax error: missing 'done' for 'for'\n");
+				filson_last_cmd_success = 0;
+				status = 1;
+				break;
+			}
+			status = filson_execute_for_loop(args, i, done_pos + 1);
+			if (status == 0) {
+				break;
+			}
+			i = done_pos + 1;
+			should_run = 1;
+			if (args[i] != NULL) {
+				if (strcmp(args[i], ";") == 0) {
+					should_run = 1;
+					i++;
+				} else if (strcmp(args[i], "&&") == 0) {
+					should_run = filson_last_cmd_success;
+					i++;
+				} else if (strcmp(args[i], "||") == 0) {
+					should_run = !filson_last_cmd_success;
+					i++;
+				}
+			}
+			continue;
+		}
+		if (args[i] != NULL && strcmp(args[i], "while") == 0 && should_run) {
+			if (!filson_find_matching_done(args, i, &done_pos)) {
+				fprintf(stderr, "filson: syntax error: missing 'done' for 'while'\n");
+				filson_last_cmd_success = 0;
+				status = 1;
+				break;
+			}
+			status = filson_execute_while_loop(args, i, done_pos + 1);
+			if (status == 0) {
+				break;
+			}
+			i = done_pos + 1;
+			should_run = 1;
+			if (args[i] != NULL) {
+				if (strcmp(args[i], ";") == 0) {
+					should_run = 1;
+					i++;
+				} else if (strcmp(args[i], "&&") == 0) {
+					should_run = filson_last_cmd_success;
+					i++;
+				} else if (strcmp(args[i], "||") == 0) {
+					should_run = !filson_last_cmd_success;
+					i++;
+				}
+			}
+			continue;
+		}
 		j = i;
-		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0 && strcmp(args[j], "if") != 0) {
+		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0 && strcmp(args[j], "if") != 0 && strcmp(args[j], "for") != 0 && strcmp(args[j], "while") != 0) {
 			j++;
 		}
 		if (j == i) {
