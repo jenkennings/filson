@@ -31,10 +31,13 @@ static int filson_is_assignment_token(const char *token);
 static int filson_parse_assignment_token(const char *token, char **name_out, const char **value_out);
 static char *filson_expand_parameter(const char *arg);
 static void filson_expand_arguments(char **args);
+static char *filson_lookup_alias(const char *name);
 static int filson_run_command_only(char **args, int background, char *segment);
 static int filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment);
 
 int filson_last_cmd_success = 1;
+
+int filson_alias(char **args);
 
 char *builtin_str[] = {
 	"cd",
@@ -50,7 +53,9 @@ char *builtin_str[] = {
 	"history",
 	"jobs",
 	"fg",
-	"bg"
+	"bg",
+	"wait",
+	"alias"
 };
 
 int (*builtin_func[])(char **) = {
@@ -67,7 +72,9 @@ int (*builtin_func[])(char **) = {
 	&filson_history,
 	&filson_jobs,
 	&filson_fg,
-	&filson_bg
+	&filson_bg,
+	&filson_wait,
+	&filson_alias
 };
 
 int
@@ -110,6 +117,71 @@ filson_arg_count(char **args)
 		count++;
 	}
 	return count;
+}
+
+#define FILSON_MAX_ALIASES 64
+
+struct filson_alias_entry {
+	int used;
+	char *name;
+	char *value;
+};
+
+static struct filson_alias_entry filson_aliases[FILSON_MAX_ALIASES];
+
+static char *
+filson_lookup_alias(const char *name)
+{
+	int i;
+
+	if (name == NULL) {
+		return NULL;
+	}
+	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
+			return filson_aliases[i].value;
+		}
+	}
+	return NULL;
+}
+
+static void
+filson_set_alias(const char *name, const char *value)
+{
+	int i, empty_slot;
+
+	if (name == NULL || value == NULL) {
+		return;
+	}
+	empty_slot = -1;
+	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
+			free(filson_aliases[i].value);
+			filson_aliases[i].value = malloc(strlen(value) + 1);
+			if (filson_aliases[i].value == NULL) {
+				return;
+			}
+			strcpy(filson_aliases[i].value, value);
+			return;
+		}
+		if (!filson_aliases[i].used && empty_slot == -1) {
+			empty_slot = i;
+		}
+	}
+	if (empty_slot == -1) {
+		return;
+	}
+	filson_aliases[empty_slot].used = 1;
+	filson_aliases[empty_slot].name = malloc(strlen(name) + 1);
+	filson_aliases[empty_slot].value = malloc(strlen(value) + 1);
+	if (filson_aliases[empty_slot].name == NULL || filson_aliases[empty_slot].value == NULL) {
+		free(filson_aliases[empty_slot].name);
+		free(filson_aliases[empty_slot].value);
+		filson_aliases[empty_slot].used = 0;
+		return;
+	}
+	strcpy(filson_aliases[empty_slot].name, name);
+	strcpy(filson_aliases[empty_slot].value, value);
 }
 
 int
@@ -475,6 +547,36 @@ filson_type(char **args)
 }
 
 int
+filson_alias(char **args)
+{
+	int i;
+
+	if (args[1] == NULL) {
+		for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+			if (filson_aliases[i].used) {
+				printf("alias %s='%s'\n", filson_aliases[i].name,
+				    filson_aliases[i].value);
+			}
+		}
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	if (args[2] == NULL) {
+		printf("filson: alias: expected <name> and <command>\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	if (!filson_is_valid_varname(args[1])) {
+		printf("filson: alias: invalid alias name: %s\n", args[1]);
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	filson_set_alias(args[1], args[2]);
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
 filson_launch(char **args, int background, char *segment)
 {
 	pid_t pid;
@@ -570,6 +672,7 @@ static int
 filson_run_command_only(char **args, int background, char *segment)
 {
 	int i;
+	char *alias_value, *new_command;
 
 	if (args[0] == NULL) {
 		filson_last_cmd_success = 1;
@@ -585,6 +688,18 @@ filson_run_command_only(char **args, int background, char *segment)
 		return 1;
 	}
 	filson_expand_arguments(args);
+	alias_value = filson_lookup_alias(args[0]);
+	if (alias_value != NULL) {
+		new_command = malloc(strlen(alias_value) + 1);
+		if (new_command == NULL) {
+			perror("filson");
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		strcpy(new_command, alias_value);
+		free(args[0]);
+		args[0] = new_command;
+	}
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
 			if (background) {

@@ -229,3 +229,50 @@ filson_bg(char **args)
 	filson_last_cmd_success = 1;
 	return 1;
 }
+
+int
+filson_wait(char **args)
+{
+	int slot, status, i;
+	char *endptr;
+	long id;
+	pid_t pid;
+
+	if (args[1] == NULL) {
+		for (i = 0; i < FILSON_MAX_JOBS; i++) {
+			if (filson_jobs_table[i].used) {
+				pid = waitpid(filson_jobs_table[i].pid, &status, 0);
+				if (pid > 0) {
+					filson_jobs_table[i].used = 0;
+				}
+			}
+		}
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	id = strtol(args[1], &endptr, 10);
+	if (endptr == args[1] || *endptr != '\0' || id <= 0) {
+		fprintf(stderr, "filson: wait expects a job id\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	slot = filson_find_job_slot_by_id((int)id);
+	if (slot < 0) {
+		fprintf(stderr, "filson: wait: no such job\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	pid = waitpid(filson_jobs_table[slot].pid, &status, 0);
+	if (pid < 0) {
+		perror("filson");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	filson_remove_job_slot(slot);
+	if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+		filson_last_cmd_success = 1;
+	} else {
+		filson_last_cmd_success = 0;
+	}
+	return 1;
+}
