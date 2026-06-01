@@ -422,6 +422,110 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 	return 1;
 }
 
+static int filson_execute_parsed_segment(char **tokens, int start, int end);
+
+static int
+filson_find_matching_fi(char **tokens, int if_pos, int *fi_pos)
+{
+	int i, depth;
+
+	depth = 1;
+	i = if_pos + 1;
+	while (tokens[i] != NULL && depth > 0) {
+		if (strcmp(tokens[i], "if") == 0) {
+			depth++;
+		} else if (strcmp(tokens[i], "fi") == 0) {
+			depth--;
+		}
+		i++;
+	}
+	if (depth == 0) {
+		*fi_pos = i - 1;
+		return 1;
+	}
+	return 0;
+}
+
+static int
+filson_find_then_else(char **tokens, int start, int end, int *then_pos, int *else_pos, int *elif_pos)
+{
+	int i, depth;
+
+	*then_pos = -1;
+	*else_pos = -1;
+	*elif_pos = -1;
+	depth = 1;
+	for (i = start + 1; i < end; i++) {
+		if (strcmp(tokens[i], "if") == 0) {
+			depth++;
+		} else if (strcmp(tokens[i], "fi") == 0) {
+			depth--;
+		} else if (depth == 1 && strcmp(tokens[i], "then") == 0) {
+			*then_pos = i;
+		} else if (depth == 1 && strcmp(tokens[i], "else") == 0) {
+			*else_pos = i;
+		} else if (depth == 1 && strcmp(tokens[i], "elif") == 0) {
+			*elif_pos = i;
+		}
+	}
+	return *then_pos != -1;
+}
+
+static int
+filson_execute_if_block(char **tokens, int start, int end)
+{
+	int then_pos, else_pos, elif_pos;
+	int cond_start, cond_end;
+	int then_start, then_end;
+	int else_start, else_end;
+
+	if (!filson_find_then_else(tokens, start, end, &then_pos, &else_pos, &elif_pos)) {
+		fprintf(stderr, "filson: syntax error: missing 'then' in if statement\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	cond_start = start + 1;
+	cond_end = then_pos;
+	while (cond_end > cond_start && strcmp(tokens[cond_end - 1], ";") == 0) {
+		cond_end--;
+	}
+	then_start = then_pos + 1;
+	if (elif_pos != -1) {
+		then_end = elif_pos;
+	} else if (else_pos != -1) {
+		then_end = else_pos;
+	} else {
+		then_end = end - 1;
+	}
+	while (then_end > then_start && strcmp(tokens[then_end - 1], ";") == 0) {
+		then_end--;
+	}
+	if (cond_start >= cond_end) {
+		fprintf(stderr, "filson: syntax error: empty condition in if statement\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	filson_execute_parsed_segment(tokens, cond_start, cond_end);
+	if (filson_last_cmd_success) {
+		return filson_execute_parsed_segment(tokens, then_start, then_end);
+	} else if (else_pos != -1) {
+		else_start = else_pos + 1;
+		if (elif_pos != -1) {
+			else_end = elif_pos;
+		} else {
+			else_end = end - 1;
+		}
+		while (else_end > else_start && strcmp(tokens[else_end - 1], ";") == 0) {
+			else_end--;
+		}
+		return filson_execute_parsed_segment(tokens, else_start, else_end);
+	} else if (elif_pos != -1) {
+		return filson_execute_if_block(tokens, elif_pos, end);
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
 static int
 filson_execute_parsed_segment(char **tokens, int start, int end)
 {
@@ -594,7 +698,7 @@ filson_execute_and_chain(char *line)
 	char *expanded;
 	char *normalized;
 	char **args;
-	int i, j;
+	int i, j, fi_pos;
 	int status, should_run;
 
 	expanded = filson_expand_command_substitutions(line);
@@ -615,8 +719,35 @@ filson_execute_and_chain(char *line)
 	should_run = 1;
 	i = 0;
 	while (args[i] != NULL) {
+		if (args[i] != NULL && strcmp(args[i], "if") == 0 && should_run) {
+			if (!filson_find_matching_fi(args, i, &fi_pos)) {
+				fprintf(stderr, "filson: syntax error: missing 'fi' for 'if'\n");
+				filson_last_cmd_success = 0;
+				status = 1;
+				break;
+			}
+			status = filson_execute_if_block(args, i, fi_pos + 1);
+			if (status == 0) {
+				break;
+			}
+			i = fi_pos + 1;
+			should_run = 1;
+			if (args[i] != NULL) {
+				if (strcmp(args[i], ";") == 0) {
+					should_run = 1;
+					i++;
+				} else if (strcmp(args[i], "&&") == 0) {
+					should_run = filson_last_cmd_success;
+					i++;
+				} else if (strcmp(args[i], "||") == 0) {
+					should_run = !filson_last_cmd_success;
+					i++;
+				}
+			}
+			continue;
+		}
 		j = i;
-		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0) {
+		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0 && strcmp(args[j], "if") != 0) {
 			j++;
 		}
 		if (j == i) {
@@ -638,7 +769,7 @@ filson_execute_and_chain(char *line)
 			should_run = 1;
 		} else if (strcmp(args[j], "&&") == 0) {
 			should_run = filson_last_cmd_success;
-		} else {
+		} else if (strcmp(args[j], "||") == 0) {
 			should_run = !filson_last_cmd_success;
 		}
 		i = j + 1;
