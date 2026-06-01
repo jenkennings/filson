@@ -253,6 +253,66 @@ test_stderr_to_stdout_redirection(void)
 	unlink("/tmp/filson_pipe_test_out.txt");
 }
 
+void
+test_output_append_redirection(void)
+{
+	FILE *f;
+	char buf[256];
+	char *line;
+
+	line = strdup("echo first > /tmp/filson_pipe_append.txt; echo second >> /tmp/filson_pipe_append.txt");
+	if (line == NULL) {
+		TEST_FAIL("output_append_redirection", "allocation failed");
+		return;
+	}
+	filson_execute_and_chain(line);
+	free(line);
+	f = fopen("/tmp/filson_pipe_append.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("output_append_redirection", "append target missing");
+		return;
+	}
+	buf[0] = '\0';
+	while (fgets(buf + strlen(buf), sizeof(buf) - (int)strlen(buf), f) != NULL) {}
+	fclose(f);
+	if (strstr(buf, "first") != NULL && strstr(buf, "second") != NULL) {
+		TEST_PASS("output_append_redirection");
+	} else {
+		TEST_FAIL("output_append_redirection", "append content incorrect");
+	}
+	unlink("/tmp/filson_pipe_append.txt");
+}
+
+void
+test_stderr_append_redirection(void)
+{
+	FILE *f;
+	char buf[512];
+	char *line;
+
+	line = strdup("ls /tmp/filson_missing_append_a 2> /tmp/filson_pipe_err_append.txt; ls /tmp/filson_missing_append_b 2>> /tmp/filson_pipe_err_append.txt");
+	if (line == NULL) {
+		TEST_FAIL("stderr_append_redirection", "allocation failed");
+		return;
+	}
+	filson_execute_and_chain(line);
+	free(line);
+	f = fopen("/tmp/filson_pipe_err_append.txt", "r");
+	if (f == NULL) {
+		TEST_FAIL("stderr_append_redirection", "stderr append target missing");
+		return;
+	}
+	buf[0] = '\0';
+	while (fgets(buf + strlen(buf), sizeof(buf) - (int)strlen(buf), f) != NULL) {}
+	fclose(f);
+	if (strstr(buf, "filson_missing_append_a") != NULL && strstr(buf, "filson_missing_append_b") != NULL) {
+		TEST_PASS("stderr_append_redirection");
+	} else {
+		TEST_FAIL("stderr_append_redirection", "stderr append content incorrect");
+	}
+	unlink("/tmp/filson_pipe_err_append.txt");
+}
+
 int
 main(void)
 {
@@ -266,6 +326,8 @@ main(void)
 	test_input_redirection();
 	test_stderr_redirection();
 	test_stderr_to_stdout_redirection();
+	test_output_append_redirection();
+	test_stderr_append_redirection();
 	printf("\nPassed: %d\n", tests_passed);
 	printf("Failed: %d\n", tests_failed);
 	return tests_failed > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
