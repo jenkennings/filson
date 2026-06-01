@@ -167,7 +167,7 @@ filson_expand_command_substitutions(const char *line)
 char *
 filson_normalize_script_ops(const char *line)
 {
-	int i, j, len, in_single, in_double;
+	int i, j, len, in_single, in_double, brace_depth;
 	char *out;
 
 	if (line == NULL) {
@@ -180,6 +180,7 @@ filson_normalize_script_ops(const char *line)
 	}
 	in_single = 0;
 	in_double = 0;
+	brace_depth = 0;
 	i = 0;
 	j = 0;
 	while (line[i] != '\0') {
@@ -194,7 +195,13 @@ filson_normalize_script_ops(const char *line)
 			continue;
 		}
 		if (!in_single && !in_double) {
-			if (line[i] == '#') {
+			if (line[i] == '{') {
+				brace_depth++;
+			} else if (line[i] == '}') {
+				if (brace_depth > 0) {
+					brace_depth--;
+				}
+			} else if (line[i] == '#' && brace_depth == 0) {
 				break;
 			}
 			if (line[i] == '&' && line[i + 1] == '&') {

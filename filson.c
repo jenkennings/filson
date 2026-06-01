@@ -16,6 +16,11 @@ int filson_help(char **args);
 int filson_exit(char **args);
 int filson_set(char **args);
 int filson_echo(char **args);
+int filson_pwd(char **args);
+int filson_clear(char **args);
+int filson_unset(char **args);
+int filson_export(char **args);
+int filson_type(char **args);
 int filson_is_valid_varname(const char *name);
 int filson_path_is_safe(void);
 int filson_arg_count(char **args);
@@ -24,6 +29,8 @@ char **filson_split_line(char *line);
 
 static int filson_is_assignment_token(const char *token);
 static int filson_parse_assignment_token(const char *token, char **name_out, const char **value_out);
+static char *filson_expand_parameter(const char *arg);
+static void filson_expand_arguments(char **args);
 static int filson_run_command_only(char **args, int background, char *segment);
 static int filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment);
 
@@ -35,6 +42,11 @@ char *builtin_str[] = {
 	"exit",
 	"set",
 	"echo",
+	"pwd",
+	"clear",
+	"unset",
+	"export",
+	"type",
 	"history",
 	"jobs",
 	"fg",
@@ -47,6 +59,11 @@ int (*builtin_func[])(char **) = {
 	&filson_exit,
 	&filson_set,
 	&filson_echo,
+	&filson_pwd,
+	&filson_clear,
+	&filson_unset,
+	&filson_export,
+	&filson_type,
 	&filson_history,
 	&filson_jobs,
 	&filson_fg,
@@ -125,6 +142,119 @@ filson_path_is_safe(void)
 	return safe;
 }
 
+static char *
+filson_expand_parameter(const char *arg)
+{
+	const char *var_name, *default_value, *value, *pattern;
+	const char *close_brace, *colon, *hash;
+	char *result, *var_name_copy;
+	size_t var_len, value_len, result_len, prefix_len, i;
+
+	if (arg == NULL || arg[0] != '$') {
+		return strdup(arg);
+	}
+	if (arg[1] != '{') {
+		var_name = &arg[1];
+		value = getenv(var_name);
+		return strdup(value != NULL ? value : "");
+	}
+	close_brace = strchr(&arg[2], '}');
+	if (close_brace == NULL) {
+		return strdup(arg);
+	}
+	var_len = (size_t)(close_brace - &arg[2]);
+	hash = memchr(&arg[2], '#', var_len);
+	colon = memchr(&arg[2], ':', var_len);
+	if (hash == NULL && colon == NULL) {
+		var_name_copy = malloc(var_len + 1);
+		if (var_name_copy == NULL) {
+			return strdup(arg);
+		}
+		memcpy(var_name_copy, &arg[2], var_len);
+		var_name_copy[var_len] = '\0';
+		value = getenv(var_name_copy);
+		result = strdup(value != NULL ? value : "");
+		free(var_name_copy);
+		return result;
+	}
+	if (hash != NULL && (colon == NULL || hash < colon)) {
+		prefix_len = (size_t)(hash - &arg[2]);
+		var_name_copy = malloc(prefix_len + 1);
+		if (var_name_copy == NULL) {
+			return strdup(arg);
+		}
+		memcpy(var_name_copy, &arg[2], prefix_len);
+		var_name_copy[prefix_len] = '\0';
+		value = getenv(var_name_copy);
+		if (value == NULL) {
+			free(var_name_copy);
+			return strdup("");
+		}
+		pattern = hash + 1;
+		value_len = (size_t)(close_brace - pattern);
+		result_len = strlen(value);
+		for (i = 0; i < value_len && i < result_len; i++) {
+			if (value[i] != pattern[i]) {
+				break;
+			}
+		}
+		result = malloc(result_len - i + 1);
+		if (result == NULL) {
+			free(var_name_copy);
+			return strdup(arg);
+		}
+		strcpy(result, &value[i]);
+		free(var_name_copy);
+		return result;
+	}
+	prefix_len = (size_t)(colon - &arg[2]);
+	var_name_copy = malloc(prefix_len + 1);
+	if (var_name_copy == NULL) {
+		return strdup(arg);
+	}
+	memcpy(var_name_copy, &arg[2], prefix_len);
+	var_name_copy[prefix_len] = '\0';
+	value = getenv(var_name_copy);
+	if (colon[1] == '-') {
+		default_value = &colon[2];
+		value_len = (size_t)(close_brace - default_value);
+		if (value == NULL || value[0] == '\0') {
+			result = malloc(value_len + 1);
+			if (result == NULL) {
+				free(var_name_copy);
+				return strdup(arg);
+			}
+			memcpy(result, default_value, value_len);
+			result[value_len] = '\0';
+			free(var_name_copy);
+			return result;
+		}
+		free(var_name_copy);
+		return strdup(value);
+	}
+	free(var_name_copy);
+	return strdup(arg);
+}
+
+static void
+filson_expand_arguments(char **args)
+{
+	int i;
+	char *expanded, *old;
+
+	if (args == NULL) {
+		return;
+	}
+	for (i = 0; args[i] != NULL; i++) {
+		expanded = filson_expand_parameter(args[i]);
+		if (expanded != args[i]) {
+			old = args[i];
+			args[i] = expanded;
+			free(old);
+		}
+	}
+}
+
 int
 filson_cd(char **args)
 {
@@ -193,7 +323,6 @@ int
 filson_echo(char **args)
 {
 	int i, first;
-	char *var_name, *var_value;
 
 	i = 1;
 	first = 1;
@@ -202,19 +331,146 @@ filson_echo(char **args)
 			printf(" ");
 		}
 		first = 0;
-		if (args[i][0] == '$') {
-			var_name = &args[i][1];
-			var_value = getenv(var_name);
-			if (var_value != NULL) {
-				printf("%s", var_value);
-			}
-		} else {
-			printf("%s", args[i]);
-		}
+		printf("%s", args[i]);
 		i++;
 	}
 	printf("\n");
 	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_pwd(char **args)
+{
+	char buf[4096];
+
+	(void)args;
+	if (getcwd(buf, sizeof(buf)) == NULL) {
+		perror("filson");
+		filson_last_cmd_success = 0;
+	} else {
+		printf("%s\n", buf);
+		filson_last_cmd_success = 1;
+	}
+	return 1;
+}
+
+int
+filson_clear(char **args)
+{
+	(void)args;
+	printf("\033[2J\033[H");
+	fflush(stdout);
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_unset(char **args)
+{
+	if (args[1] == NULL) {
+		fprintf(stderr, "filson: expected argument to \"unset\"\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	unsetenv(args[1]);
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_export(char **args)
+{
+	const char *value;
+	char *name;
+
+	if (args[1] == NULL) {
+		fprintf(stderr, "filson: expected argument to \"export\"\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	if (!filson_parse_assignment_token(args[1], &name, &value)) {
+		if (!filson_is_valid_varname(args[1])) {
+			fprintf(stderr, "filson: invalid variable name: %s\n", args[1]);
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		value = getenv(args[1]);
+		if (value == NULL) {
+			fprintf(stderr, "filson: variable not set: %s\n", args[1]);
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	if (setenv(name, value, 1) != 0) {
+		perror("filson");
+		free(name);
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	free(name);
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_type(char **args)
+{
+	int i;
+	char *path, *token, *path_copy, *full_path;
+	size_t needed;
+
+	if (args[1] == NULL) {
+		fprintf(stderr, "filson: expected argument to \"type\"\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	for (i = 0; i < filson_num_builtins(); i++) {
+		if (strcmp(args[1], builtin_str[i]) == 0) {
+			printf("%s is a shell builtin\n", args[1]);
+			filson_last_cmd_success = 1;
+			return 1;
+		}
+	}
+	path = getenv("PATH");
+	if (path == NULL) {
+		printf("%s: not found\n", args[1]);
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	path_copy = malloc(strlen(path) + 1);
+	if (path_copy == NULL) {
+		perror("filson");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	strcpy(path_copy, path);
+	token = strtok(path_copy, ":");
+	while (token != NULL) {
+		needed = strlen(token) + strlen(args[1]) + 2;
+		full_path = malloc(needed);
+		if (full_path == NULL) {
+			perror("filson");
+			free(path_copy);
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		snprintf(full_path, needed, "%s/%s", token, args[1]);
+		if (access(full_path, X_OK) == 0) {
+			printf("%s\n", full_path);
+			free(full_path);
+			free(path_copy);
+			filson_last_cmd_success = 1;
+			return 1;
+		}
+		free(full_path);
+		token = strtok(NULL, ":");
+	}
+	free(path_copy);
+	printf("%s: not found\n", args[1]);
+	filson_last_cmd_success = 0;
 	return 1;
 }
 
@@ -328,6 +584,7 @@ filson_run_command_only(char **args, int background, char *segment)
 		filson_last_cmd_success = 0;
 		return 1;
 	}
+	filson_expand_arguments(args);
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
 			if (background) {
@@ -606,7 +863,7 @@ char **
 filson_split_line(char *line)
 {
 	int bufsize, position;
-	char **tokens, *token;
+	char **tokens, *token, *token_copy;
 
 	bufsize = FILSON_TOK_BUFSIZE;
 	position = 0;
@@ -617,7 +874,13 @@ filson_split_line(char *line)
 	}
 	token = strtok(line, FILSON_TOK_DELIM);
 	while (token != NULL) {
-		tokens[position] = token;
+		token_copy = malloc(strlen(token) + 1);
+		if (!token_copy) {
+			fprintf(stderr, "filson: allocation error\n");
+			exit(EXIT_FAILURE);
+		}
+		strcpy(token_copy, token);
+		tokens[position] = token_copy;
 		position++;
 		if (position >= bufsize) {
 			bufsize += FILSON_TOK_BUFSIZE;
