@@ -70,6 +70,145 @@ filson_run_subcommand(const char *cmd)
 	return out;
 }
 
+static int filson_evaluate_arithmetic(const char *expr);
+
+static long
+filson_parse_factor(const char *expr, int *pos)
+{
+	long factor;
+	const char *var_value;
+	char var_name[256];
+	int var_len, depth, i;
+
+	while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+		(*pos)++;
+	}
+	if (expr[*pos] == '-') {
+		(*pos)++;
+		return -filson_parse_factor(expr, pos);
+	}
+	if (expr[*pos] == '+') {
+		(*pos)++;
+		return filson_parse_factor(expr, pos);
+	}
+	if (expr[*pos] == '$') {
+		(*pos)++;
+		var_len = 0;
+		while ((expr[*pos + var_len] >= 'a' && expr[*pos + var_len] <= 'z') ||
+		       (expr[*pos + var_len] >= 'A' && expr[*pos + var_len] <= 'Z') ||
+		       (expr[*pos + var_len] >= '0' && expr[*pos + var_len] <= '9') ||
+		       expr[*pos + var_len] == '_') {
+			var_len++;
+		}
+		if (var_len == 0 || var_len >= 256) {
+			return 0;
+		}
+		memcpy(var_name, expr + *pos, var_len);
+		var_name[var_len] = '\0';
+		var_value = getenv(var_name);
+		factor = var_value != NULL ? atol(var_value) : 0;
+		*pos += var_len;
+		return factor;
+	}
+	if (expr[*pos] == '(') {
+		(*pos)++;
+		depth = 1;
+		i = *pos;
+		while (expr[i] != '\0' && depth > 0) {
+			if (expr[i] == '(') {
+				depth++;
+			} else if (expr[i] == ')') {
+				depth--;
+			}
+			i++;
+		}
+		if (depth != 0) {
+			return 0;
+		}
+		var_len = i - *pos - 1;
+		memcpy(var_name, expr + *pos, var_len);
+		var_name[var_len] = '\0';
+		factor = filson_evaluate_arithmetic(var_name);
+		*pos = i;
+		return factor;
+	}
+	if (expr[*pos] >= '0' && expr[*pos] <= '9') {
+		factor = 0;
+		while (expr[*pos] >= '0' && expr[*pos] <= '9') {
+			factor = factor * 10 + (expr[*pos] - '0');
+			(*pos)++;
+		}
+		return factor;
+	}
+	return 0;
+}
+
+static long
+filson_parse_term(const char *expr, int *pos)
+{
+	long term;
+	char op;
+
+	term = filson_parse_factor(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		op = expr[*pos];
+		if (op == '*') {
+			(*pos)++;
+			term *= filson_parse_factor(expr, pos);
+		} else if (op == '/') {
+			(*pos)++;
+			long divisor = filson_parse_factor(expr, pos);
+			if (divisor != 0) {
+				term /= divisor;
+			}
+		} else if (op == '%') {
+			(*pos)++;
+			long divisor = filson_parse_factor(expr, pos);
+			if (divisor != 0) {
+				term %= divisor;
+			}
+		} else {
+			break;
+		}
+	}
+	return term;
+}
+
+static int
+filson_evaluate_arithmetic(const char *expr)
+{
+	long result;
+	int pos;
+	char op;
+
+	if (expr == NULL || expr[0] == '\0') {
+		return 0;
+	}
+	pos = 0;
+	result = filson_parse_term(expr, &pos);
+	while (1) {
+		while (expr[pos] == ' ' || expr[pos] == '\t') {
+			pos++;
+		}
+		op = expr[pos];
+		if (op == '+') {
+			pos++;
+			result += filson_parse_term(expr, &pos);
+		} else if (op == '-' && (pos == 0 || expr[pos - 1] == ' ' || expr[pos - 1] == '\t' || expr[pos - 1] == '+' || expr[pos - 1] == '-' || expr[pos - 1] == '*' || expr[pos - 1] == '/' || expr[pos - 1] == '%' || expr[pos - 1] == '(')) {
+			pos++;
+			result -= filson_parse_term(expr, &pos);
+		} else if (op == ')' || op == '\0') {
+			break;
+		} else {
+			break;
+		}
+	}
+	return (int)result;
+}
+
 static char *
 filson_expand_command_substitutions(const char *line)
 {
@@ -100,54 +239,101 @@ filson_expand_command_substitutions(const char *line)
 			in_double = !in_double;
 		}
 		if (!in_single && line[i] == '$' && line[i + 1] == '(') {
-			j = i + 2;
-			depth = 1;
-			while (line[j] != '\0' && depth > 0) {
-				if (line[j] == '(') {
-					depth++;
-				} else if (line[j] == ')') {
-					depth--;
+			if (line[i + 2] == '(') {
+				j = i + 3;
+				depth = 1;
+				while (line[j] != '\0' && depth > 0) {
+					if (line[j] == '(') {
+						depth++;
+					} else if (line[j] == ')') {
+						depth--;
+					}
+					if (depth > 0) {
+						j++;
+					}
 				}
-				if (depth > 0) {
-					j++;
-				}
-			}
-			if (depth != 0) {
-				free(out);
-				return NULL;
-			}
-			cmd = malloc((j - (i + 2)) + 1);
-			if (cmd == NULL) {
-				free(out);
-				return NULL;
-			}
-			for (k = 0; k < j - (i + 2); k++) {
-				cmd[k] = line[i + 2 + k];
-			}
-			cmd[k] = '\0';
-			cmd_out = filson_run_subcommand(cmd);
-			free(cmd);
-			if (cmd_out == NULL) {
-				free(out);
-				return NULL;
-			}
-			if (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
-				while (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
-					out_cap *= 2;
-				}
-				tmp = realloc(out, out_cap);
-				if (tmp == NULL) {
-					free(cmd_out);
+				if (depth != 0 || line[j] != ')') {
 					free(out);
 					return NULL;
 				}
-				out = tmp;
+				cmd = malloc((j - (i + 3)) + 1);
+				if (cmd == NULL) {
+					free(out);
+					return NULL;
+				}
+				for (k = 0; k < j - (i + 3); k++) {
+					cmd[k] = line[i + 3 + k];
+				}
+				cmd[k] = '\0';
+				int arith_result = filson_evaluate_arithmetic(cmd);
+				free(cmd);
+				char result_buf[64];
+				snprintf(result_buf, sizeof(result_buf), "%d", arith_result);
+				if (out_len + (int)strlen(result_buf) + 1 > out_cap) {
+					while (out_len + (int)strlen(result_buf) + 1 > out_cap) {
+						out_cap *= 2;
+					}
+					tmp = realloc(out, out_cap);
+					if (tmp == NULL) {
+						free(out);
+						return NULL;
+					}
+					out = tmp;
+				}
+				memcpy(out + out_len, result_buf, strlen(result_buf));
+				out_len += strlen(result_buf);
+				i = j + 2;
+				continue;
+			} else {
+				j = i + 2;
+				depth = 1;
+				while (line[j] != '\0' && depth > 0) {
+					if (line[j] == '(') {
+						depth++;
+					} else if (line[j] == ')') {
+						depth--;
+					}
+					if (depth > 0) {
+						j++;
+					}
+				}
+				if (depth != 0) {
+					free(out);
+					return NULL;
+				}
+				cmd = malloc((j - (i + 2)) + 1);
+				if (cmd == NULL) {
+					free(out);
+					return NULL;
+				}
+				for (k = 0; k < j - (i + 2); k++) {
+					cmd[k] = line[i + 2 + k];
+				}
+				cmd[k] = '\0';
+				cmd_out = filson_run_subcommand(cmd);
+				free(cmd);
+				if (cmd_out == NULL) {
+					free(out);
+					return NULL;
+				}
+				if (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
+					while (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
+						out_cap *= 2;
+					}
+					tmp = realloc(out, out_cap);
+					if (tmp == NULL) {
+						free(cmd_out);
+						free(out);
+						return NULL;
+					}
+					out = tmp;
+				}
+				memcpy(out + out_len, cmd_out, strlen(cmd_out));
+				out_len += strlen(cmd_out);
+				free(cmd_out);
+				i = j + 1;
+				continue;
 			}
-			memcpy(out + out_len, cmd_out, strlen(cmd_out));
-			out_len += strlen(cmd_out);
-			free(cmd_out);
-			i = j + 1;
-			continue;
 		}
 		if (out_len + 2 > out_cap) {
 			out_cap *= 2;
