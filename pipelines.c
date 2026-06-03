@@ -863,19 +863,15 @@ filson_execute_if_block(char **tokens, int start, int end)
 	filson_execute_parsed_segment(tokens, cond_start, cond_end);
 	if (filson_last_cmd_success) {
 		return filson_execute_parsed_segment(tokens, then_start, then_end);
+	} else if (elif_pos != -1) {
+		return filson_execute_if_block(tokens, elif_pos, end);
 	} else if (else_pos != -1) {
 		else_start = else_pos + 1;
-		if (elif_pos != -1) {
-			else_end = elif_pos;
-		} else {
-			else_end = end - 1;
-		}
+		else_end = end - 1;
 		while (else_end > else_start && strcmp(tokens[else_end - 1], ";") == 0) {
 			else_end--;
 		}
 		return filson_execute_parsed_segment(tokens, else_start, else_end);
-	} else if (elif_pos != -1) {
-		return filson_execute_if_block(tokens, elif_pos, end);
 	}
 	filson_last_cmd_success = 1;
 	return 1;
@@ -935,6 +931,11 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 			fprintf(stderr, "filson: allocation error\n");
 			filson_last_cmd_success = 0;
 			return 1;
+		}
+		if (start < end && (strcmp(tokens[start], "if") == 0 || strcmp(tokens[start], "for") == 0 || strcmp(tokens[start], "while") == 0)) {
+			k = filson_execute_and_chain(segment);
+			free(segment);
+			return k;
 		}
 		saved_end = tokens[end];
 		tokens[end] = NULL;
