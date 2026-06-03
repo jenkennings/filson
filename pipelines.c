@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include "jobcontrol.h"
 #include "pipelines.h"
+#include "parameter_expansion.h"
 #include "globbing.h"
 #include "shell_session.h"
 

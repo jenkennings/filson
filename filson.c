@@ -12,6 +12,7 @@
 #include "shell_session.h"
 #include "runtime_state.h"
 #include "expansion.h"
+#include "test.h"
 
 int filson_cd(char **args);
 int filson_help(char **args);
@@ -24,7 +25,7 @@ int filson_unset(char **args);
 int filson_export(char **args);
 int filson_type(char **args);
 int filson_alias(char **args);
-int filson_ssh(char **args);
+int filson_test(char **args);
 int filson_local(char **args);
 int filson_return_stmt(char **args);
 int filson_declare_func(char **args);
@@ -55,7 +56,7 @@ char *builtin_str[] = {
 	"bg",
 	"wait",
 	"alias",
-	"ssh",
+	"test",
 	"local",
 	"return",
 	"declare"
@@ -78,7 +79,7 @@ int (*builtin_func[])(char **) = {
 	&filson_bg,
 	&filson_wait,
 	&filson_alias,
-	&filson_ssh,
+	&filson_test,
 	&filson_local,
 	&filson_return_stmt,
 	&filson_declare_func
