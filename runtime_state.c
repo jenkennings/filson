@@ -104,14 +104,123 @@ void
 filson_print_aliases(void)
 {
 	int i;
+	struct filson_alias_entry sorted[FILSON_MAX_ALIASES];
+	int count;
+	int j;
+	int k;
 
+	count = 0;
 	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used) {
-			printf("alias %s='%s'\n", filson_aliases[i].name, filson_aliases[i].value);
+			sorted[count++] = filson_aliases[i];
+		}
+	}
+	for (i = 0; i < count - 1; i++) {
+		for (j = i + 1; j < count; j++) {
+			if (strcmp(sorted[i].name, sorted[j].name) > 0) {
+				struct filson_alias_entry tmp = sorted[i];
+				sorted[i] = sorted[j];
+				sorted[j] = tmp;
+			}
+		}
+	}
+	(void)k;
+	for (i = 0; i < count; i++) {
+		int needs_quote = 0;
+		const char *v = sorted[i].value;
+
+		if (v[0] == '\0') {
+			needs_quote = 1;
+		} else {
+			for (j = 0; v[j] != '\0'; j++) {
+				if (v[j] == ' ' || v[j] == '\t' || v[j] == '\'' ||
+				    v[j] == '"' || v[j] == '\\' || v[j] == '$' ||
+				    v[j] == '!' || v[j] == '&' || v[j] == '|' ||
+				    v[j] == ';' || v[j] == '<' || v[j] == '>' ||
+				    v[j] == '(' || v[j] == ')' || v[j] == '`' ||
+				    v[j] == '*' || v[j] == '?') {
+					needs_quote = 1;
+					break;
+				}
+			}
+		}
+		if (needs_quote) {
+			printf("%s='%s'\n", sorted[i].name, v);
+		} else {
+			printf("%s=%s\n", sorted[i].name, v);
+		}
+	}
+}
+void
+filson_print_one_alias(const char *name)
+{
+	int i;
+	int j;
+	int needs_quote;
+	const char *v;
+
+	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
+			v = filson_aliases[i].value;
+			needs_quote = 0;
+			if (v[0] == '\0') {
+				needs_quote = 1;
+			} else {
+				for (j = 0; v[j] != '\0'; j++) {
+					if (v[j] == ' ' || v[j] == '\t' || v[j] == '\'' ||
+					    v[j] == '"' || v[j] == '\\' || v[j] == '$' ||
+					    v[j] == '!' || v[j] == '&' || v[j] == '|' ||
+					    v[j] == ';' || v[j] == '<' || v[j] == '>' ||
+					    v[j] == '(' || v[j] == ')' || v[j] == '`' ||
+					    v[j] == '*' || v[j] == '?') {
+						needs_quote = 1;
+						break;
+					}
+				}
+			}
+			if (needs_quote) {
+				printf("%s='%s'\n", name, v);
+			} else {
+				printf("%s=%s\n", name, v);
+			}
+			return;
 		}
 	}
 }
 
+int
+filson_remove_alias(const char *name)
+{
+	int i;
+
+	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
+			filson_aliases[i].used = 0;
+			free(filson_aliases[i].name);
+			free(filson_aliases[i].value);
+			filson_aliases[i].name = NULL;
+			filson_aliases[i].value = NULL;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+void
+filson_remove_all_aliases(void)
+{
+	int i;
+
+	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+		if (filson_aliases[i].used) {
+			filson_aliases[i].used = 0;
+			free(filson_aliases[i].name);
+			free(filson_aliases[i].value);
+			filson_aliases[i].name = NULL;
+			filson_aliases[i].value = NULL;
+		}
+	}
+}
 void
 filson_define_function(const char *name, const char *body)
 {

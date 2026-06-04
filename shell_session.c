@@ -11,6 +11,8 @@
 #include "autocomplete.h"
 #include "shell_session.h"
 
+extern int filson_last_cmd_success;
+
 #define FILSON_RL_BUFSIZE 1024
 #define FILSON_PROMPT "filson> "
 #define FILSON_IDLE_TIMEOUT_SECS (45 * 60)
@@ -510,8 +512,12 @@ filson_split_line(char *line)
 	int bufsize;
 	int position;
 	char **tokens;
-	char *token;
 	char *token_copy;
+	char tokbuf[4096];
+	int i;
+	int j;
+	int in_single;
+	int in_double;
 
 	bufsize = FILSON_TOK_BUFSIZE;
 	position = 0;
@@ -520,14 +526,47 @@ filson_split_line(char *line)
 		fprintf(stderr, "filson: allocation error\n");
 		exit(EXIT_FAILURE);
 	}
-	token = strtok(line, FILSON_TOK_DELIM);
-	while (token != NULL) {
-		token_copy = malloc(strlen(token) + 1);
+	i = 0;
+	while (line[i] != '\0') {
+		while (line[i] == ' ' || line[i] == '\t') {
+			i++;
+		}
+		if (line[i] == '\0') {
+			break;
+		}
+		j = 0;
+		in_single = 0;
+		in_double = 0;
+		while (line[i] != '\0') {
+			if (!in_double && line[i] == '\'') {
+				in_single = !in_single;
+				i++;
+				continue;
+			}
+			if (!in_single && line[i] == '"') {
+				in_double = !in_double;
+				i++;
+				continue;
+			}
+			if (!in_single && !in_double &&
+			    (line[i] == ' ' || line[i] == '\t')) {
+				break;
+			}
+			if (j < (int)sizeof(tokbuf) - 1) {
+				tokbuf[j++] = line[i];
+			}
+			i++;
+		}
+		if (j == 0) {
+			continue;
+		}
+		tokbuf[j] = '\0';
+		token_copy = malloc(j + 1);
 		if (!token_copy) {
 			fprintf(stderr, "filson: allocation error\n");
 			exit(EXIT_FAILURE);
 		}
-		strcpy(token_copy, token);
+		memcpy(token_copy, tokbuf, j + 1);
 		tokens[position] = token_copy;
 		position++;
 		if (position >= bufsize) {
@@ -538,7 +577,6 @@ filson_split_line(char *line)
 				exit(EXIT_FAILURE);
 			}
 		}
-		token = strtok(NULL, FILSON_TOK_DELIM);
 	}
 	tokens[position] = NULL;
 	return tokens;
@@ -550,11 +588,13 @@ filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_
 	int i;
 	int in_single;
 	int in_double;
+	int arith_depth;
 	int dstart;
 	int dend;
 
 	in_single = 0;
 	in_double = 0;
+	arith_depth = 0;
 	for (i = 0; line[i] != '\0'; i++) {
 		if (!in_double && line[i] == '\'') {
 			in_single = !in_single;
@@ -565,6 +605,18 @@ filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_
 			continue;
 		}
 		if (!in_single && !in_double &&
+		    line[i] == '$' && line[i + 1] == '(' && line[i + 2] == '(') {
+			arith_depth++;
+			i += 2;
+			continue;
+		}
+		if (!in_single && !in_double && arith_depth > 0 &&
+		    line[i] == ')' && line[i + 1] == ')') {
+			arith_depth--;
+			i++;
+			continue;
+		}
+		if (!in_single && !in_double && arith_depth == 0 &&
 		    line[i] == '<' && line[i + 1] == '<' && line[i + 2] != '<') {
 			*start_pos = i;
 			i += 2;
@@ -743,7 +795,7 @@ filson_funcdef_parse(const char *line, char *name_out, int name_max,
 	return 1;
 }
 
-void
+int
 filson_loop(void)
 {
 	char *line;
@@ -759,11 +811,15 @@ filson_loop(void)
 	status = 1;
 	do {
 		filson_reap_background_jobs();
-		printf(FILSON_PROMPT);
-		fflush(stdout);
+		if (isatty(STDIN_FILENO)) {
+			printf(FILSON_PROMPT);
+			fflush(stdout);
+		}
 		line = filson_read_line();
 		if (line == NULL) {
-			printf("\n");
+			if (isatty(STDIN_FILENO)) {
+				printf("\n");
+			}
 			break;
 		}
 		trimmed = filson_trim(line);
@@ -874,4 +930,12 @@ filson_loop(void)
 		free(line);
 	} while (status);
 	filson_clear_history();
+	{
+		extern int filson_exit_called;
+		extern int filson_exit_code;
+		if (filson_exit_called) {
+			return filson_exit_code == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+		}
+	}
+	return EXIT_SUCCESS;
 }

@@ -225,7 +225,7 @@ test_unsafe_path_blocks_exec(void)
 	char *args[] = {"true", NULL};
 	int stderr_backup, devnull, result;
 	extern int filson_last_cmd_success;
-	extern int filson_execute(char **args, int background, char *segment);
+	extern int filson_execute(char **args, int argc, int background, char *segment);
 
 	old_path = getenv("PATH");
 	setenv("PATH", ".:/usr/bin:/bin", 1);
@@ -233,7 +233,7 @@ test_unsafe_path_blocks_exec(void)
 	stderr_backup = dup(2);
 	devnull = open("/dev/null", O_WRONLY);
 	dup2(devnull, 2);
-	result = filson_execute(args, 0, "true");
+	result = filson_execute(args, 1, 0, "true");
 	dup2(stderr_backup, 2);
 	close(devnull);
 	close(stderr_backup);
@@ -256,7 +256,7 @@ test_safe_path_allows_exec(void)
 	char *args[] = {"true", NULL};
 	int stderr_backup, devnull, result;
 	extern int filson_last_cmd_success;
-	extern int filson_execute(char **args, int background, char *segment);
+	extern int filson_execute(char **args, int argc, int background, char *segment);
 
 	old_path = getenv("PATH");
 	setenv("PATH", "/usr/bin:/bin", 1);
@@ -264,7 +264,7 @@ test_safe_path_allows_exec(void)
 	stderr_backup = dup(2);
 	devnull = open("/dev/null", O_WRONLY);
 	dup2(devnull, 2);
-	result = filson_execute(args, 0, "true");
+	result = filson_execute(args, 1, 0, "true");
 	dup2(stderr_backup, 2);
 	close(devnull);
 	close(stderr_backup);

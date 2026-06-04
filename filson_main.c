@@ -24,6 +24,5 @@ main(int argc, char **argv)
 		}
 		close(fd);
 	}
-	filson_loop();
-	return EXIT_SUCCESS;
+	return filson_loop();
 }

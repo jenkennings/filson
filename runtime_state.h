@@ -4,6 +4,9 @@
 char *filson_lookup_alias(const char *name);
 void filson_set_alias(const char *name, const char *value);
 void filson_print_aliases(void);
+void filson_print_one_alias(const char *name);
+int filson_remove_alias(const char *name);
+void filson_remove_all_aliases(void);
 
 void filson_define_function(const char *name, const char *body);
 char *filson_lookup_function(const char *name);

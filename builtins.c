@@ -1,8 +1,10 @@
 #include <sys/wait.h>
+#include <limits.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <err.h>
 #include "expansion.h"
 #include "runtime_state.h"
 #include "shell_session.h"
@@ -20,17 +22,58 @@ int filson_is_valid_varname(const char *name);
 int
 filson_cd(char **args)
 {
-	if (args[1] == NULL) {
-		fprintf(stderr, "filson: expected argument to \"cd\"\n");
-		filson_last_cmd_success = 0;
+	char prev_pwd[PATH_MAX];
+	char new_pwd[PATH_MAX];
+	const char *cur_pwd;
+	char *target;
+
+	cur_pwd = getenv("PWD");
+	if (cur_pwd != NULL) {
+		strncpy(prev_pwd, cur_pwd, sizeof(prev_pwd) - 1);
+		prev_pwd[sizeof(prev_pwd) - 1] = '\0';
 	} else {
-		if (chdir(args[1]) != 0) {
-			perror("filson");
-			filson_last_cmd_success = 0;
-		} else {
-			filson_last_cmd_success = 1;
+		if (getcwd(prev_pwd, sizeof(prev_pwd)) == NULL) {
+			prev_pwd[0] = '\0';
 		}
 	}
+	if (args[1] == NULL) {
+		target = getenv("HOME");
+		if (target == NULL) {
+			warnx("cd: HOME not set");
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+	} else if (strcmp(args[1], "-") == 0) {
+		target = getenv("OLDPWD");
+		if (target == NULL) {
+			warnx("cd: OLDPWD not set");
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+	} else {
+		target = args[1];
+	}
+	if (chdir(target) != 0) {
+		warn("cd: %s", target);
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	setenv("OLDPWD", prev_pwd, 1);
+	if (target[0] == '/') {
+		strncpy(new_pwd, target, sizeof(new_pwd) - 1);
+		new_pwd[sizeof(new_pwd) - 1] = '\0';
+	} else if (prev_pwd[0] != '\0') {
+		int n = snprintf(new_pwd, sizeof(new_pwd), "%s/%s", prev_pwd, target);
+		if (n < 0 || n >= (int)sizeof(new_pwd)) {
+			new_pwd[sizeof(new_pwd) - 1] = '\0';
+		}
+	} else {
+		if (getcwd(new_pwd, sizeof(new_pwd)) == NULL) {
+			new_pwd[0] = '\0';
+		}
+	}
+	setenv("PWD", new_pwd, 1);
+	filson_last_cmd_success = 1;
 	return 1;
 }
 
@@ -60,8 +103,17 @@ filson_help(char **args)
 int
 filson_exit(char **args)
 {
-	(void)args;
-	filson_last_cmd_success = 1;
+	extern int filson_exit_code;
+	extern int filson_exit_called;
+	int code;
+
+	code = 0;
+	if (args[1] != NULL) {
+		code = atoi(args[1]);
+	}
+	filson_exit_code = code;
+	filson_exit_called = 1;
+	filson_last_cmd_success = (code == 0) ? 1 : 0;
 	return 0;
 }
 
@@ -125,10 +177,26 @@ int
 filson_pwd(char **args)
 {
 	char buf[4096];
+	const char *pwd;
 
-	(void)args;
+	if (args[1] != NULL && strcmp(args[1], "-P") == 0) {
+		if (getcwd(buf, sizeof(buf)) == NULL) {
+			warn("getcwd");
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+		printf("%s\n", buf);
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	pwd = getenv("PWD");
+	if (pwd != NULL && pwd[0] != '\0') {
+		printf("%s\n", pwd);
+		filson_last_cmd_success = 1;
+		return 1;
+	}
 	if (getcwd(buf, sizeof(buf)) == NULL) {
-		perror("filson");
+		warn("getcwd");
 		filson_last_cmd_success = 0;
 	} else {
 		printf("%s\n", buf);
@@ -273,22 +341,73 @@ filson_type(char **args)
 int
 filson_alias(char **args)
 {
+	char *eq;
+	char *name;
+	char *value;
+	int i;
+
 	if (args[1] == NULL) {
 		filson_print_aliases();
 		filson_last_cmd_success = 1;
 		return 1;
 	}
-	if (args[2] == NULL) {
-		printf("filson: alias: expected <name> and <command>\n");
+	for (i = 1; args[i] != NULL; i++) {
+		eq = strchr(args[i], '=');
+		if (eq != NULL) {
+			name = malloc(eq - args[i] + 1);
+			if (name == NULL) {
+				filson_last_cmd_success = 0;
+				return 1;
+			}
+			memcpy(name, args[i], eq - args[i]);
+			name[eq - args[i]] = '\0';
+			value = eq + 1;
+			if (!filson_is_valid_varname(name)) {
+				warnx("alias: invalid alias name: %s", name);
+				free(name);
+				filson_last_cmd_success = 0;
+				return 1;
+			}
+			filson_set_alias(name, value);
+			free(name);
+		} else {
+			if (filson_lookup_alias(args[i]) != NULL) {
+				filson_print_one_alias(args[i]);
+			} else {
+				warnx("alias: %s: not found", args[i]);
+				filson_last_cmd_success = 0;
+				return 1;
+			}
+		}
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_unalias(char **args)
+{
+	int i;
+	int found;
+
+	if (args[1] == NULL) {
+		warnx("unalias: usage: unalias [-a] name ...");
 		filson_last_cmd_success = 0;
 		return 1;
 	}
-	if (!filson_is_valid_varname(args[1])) {
-		printf("filson: alias: invalid alias name: %s\n", args[1]);
-		filson_last_cmd_success = 0;
+	if (strcmp(args[1], "-a") == 0) {
+		filson_remove_all_aliases();
+		filson_last_cmd_success = 1;
 		return 1;
 	}
-	filson_set_alias(args[1], args[2]);
+	for (i = 1; args[i] != NULL; i++) {
+		found = filson_remove_alias(args[i]);
+		if (!found) {
+			warnx("unalias: %s: not found", args[i]);
+			filson_last_cmd_success = 0;
+			return 1;
+		}
+	}
 	filson_last_cmd_success = 1;
 	return 1;
 }
@@ -601,4 +720,39 @@ int
 filson_dot(char **args)
 {
 	return filson_source(args);
+}
+
+int
+filson_eval(char **args)
+{
+	char buf[4096];
+	char *arg;
+	int i;
+	int pos;
+	int len;
+
+	if (args[1] == NULL) {
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	pos = 0;
+	for (i = 1; args[i] != NULL && pos < (int)sizeof(buf) - 2; i++) {
+		arg = args[i];
+		len = strlen(arg);
+		if (len >= 2 && arg[0] == '"' && arg[len - 1] == '"') {
+			arg = arg + 1;
+			len -= 2;
+		} else if (len >= 2 && arg[0] == '\'' && arg[len - 1] == '\'') {
+			arg = arg + 1;
+			len -= 2;
+		}
+		if (pos + len >= (int)sizeof(buf) - 2)
+			len = (int)sizeof(buf) - 2 - pos;
+		memcpy(buf + pos, arg, len);
+		pos += len;
+		if (args[i + 1] != NULL && pos < (int)sizeof(buf) - 2)
+			buf[pos++] = ' ';
+	}
+	buf[pos] = '\0';
+	return filson_execute_and_chain(buf);
 }

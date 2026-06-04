@@ -12,6 +12,7 @@ int filson_unset(char **args);
 int filson_export(char **args);
 int filson_type(char **args);
 int filson_alias(char **args);
+int filson_unalias(char **args);
 int filson_ssh(char **args);
 int filson_local(char **args);
 int filson_return_stmt(char **args);
@@ -23,5 +24,6 @@ int filson_read(char **args);
 int filson_shift(char **args);
 int filson_source(char **args);
 int filson_dot(char **args);
+int filson_eval(char **args);
 
 #endif

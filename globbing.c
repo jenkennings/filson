@@ -113,7 +113,6 @@ filson_expand_globs(char **args)
 		}
 	}
 	expanded[position] = NULL;
-	free(args);
 	return expanded;
 }
 

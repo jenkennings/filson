@@ -5,6 +5,7 @@
 #include <string.h>
 #include <fnmatch.h>
 #include <fcntl.h>
+#include <err.h>
 #include "jobcontrol.h"
 #include "pipelines.h"
 #include "parameter_expansion.h"
@@ -12,7 +13,7 @@
 #include "shell_session.h"
 
 extern int filson_last_cmd_success;
-extern int filson_execute(char **args, int background, char *segment);
+extern int filson_execute(char **args, int argc, int background, char *segment);
 extern char *filson_get_pospar(int idx);
 
 static char *
@@ -74,7 +75,7 @@ filson_run_subcommand(const char *cmd)
 	return out;
 }
 
-static int filson_evaluate_arithmetic(const char *expr);
+static long filson_evaluate_arithmetic(const char *expr);
 
 static long
 filson_parse_factor(const char *expr, int *pos)
@@ -86,6 +87,14 @@ filson_parse_factor(const char *expr, int *pos)
 
 	while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 		(*pos)++;
+	}
+	if (expr[*pos] == '!') {
+		(*pos)++;
+		return !filson_parse_factor(expr, pos);
+	}
+	if (expr[*pos] == '~') {
+		(*pos)++;
+		return ~filson_parse_factor(expr, pos);
 	}
 	if (expr[*pos] == '-') {
 		(*pos)++;
@@ -111,10 +120,22 @@ filson_parse_factor(const char *expr, int *pos)
 		var_name[var_len] = '\0';
 		if (var_len == 1 && var_name[0] >= '0' && var_name[0] <= '9') {
 			char *pval = filson_get_pospar(var_name[0] - '0');
-			factor = pval != NULL ? atol(pval) : 0;
+			if (pval == NULL) {
+				factor = 0;
+			} else if (strlen(pval) >= 256) {
+				factor = 0;
+			} else {
+				factor = filson_evaluate_arithmetic(pval);
+			}
 		} else {
 			var_value = getenv(var_name);
-			factor = var_value != NULL ? atol(var_value) : 0;
+			if (var_value == NULL) {
+				factor = 0;
+			} else if (strlen(var_value) >= 256) {
+				factor = 0;
+			} else {
+				factor = filson_evaluate_arithmetic(var_value);
+			}
 		}
 		*pos += var_len;
 		return factor;
@@ -149,6 +170,31 @@ filson_parse_factor(const char *expr, int *pos)
 		}
 		return factor;
 	}
+	if ((expr[*pos] >= 'a' && expr[*pos] <= 'z') ||
+	    (expr[*pos] >= 'A' && expr[*pos] <= 'Z') ||
+	    expr[*pos] == '_') {
+		var_len = 0;
+		while ((expr[*pos + var_len] >= 'a' && expr[*pos + var_len] <= 'z') ||
+		       (expr[*pos + var_len] >= 'A' && expr[*pos + var_len] <= 'Z') ||
+		       (expr[*pos + var_len] >= '0' && expr[*pos + var_len] <= '9') ||
+		       expr[*pos + var_len] == '_') {
+			var_len++;
+		}
+		if (var_len == 0 || var_len >= 256) {
+			return 0;
+		}
+		memcpy(var_name, expr + *pos, var_len);
+		var_name[var_len] = '\0';
+		*pos += var_len;
+		var_value = getenv(var_name);
+		if (var_value == NULL) {
+			return 0;
+		}
+		if (strlen(var_value) >= 256) {
+			return 0;
+		}
+		return filson_evaluate_arithmetic(var_value);
+	}
 	return 0;
 }
 
@@ -156,26 +202,25 @@ static long
 filson_parse_term(const char *expr, int *pos)
 {
 	long term;
-	char op;
+	long divisor;
 
 	term = filson_parse_factor(expr, pos);
 	while (1) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
-		op = expr[*pos];
-		if (op == '*') {
+		if (expr[*pos] == '*') {
 			(*pos)++;
 			term *= filson_parse_factor(expr, pos);
-		} else if (op == '/') {
+		} else if (expr[*pos] == '/') {
 			(*pos)++;
-			long divisor = filson_parse_factor(expr, pos);
+			divisor = filson_parse_factor(expr, pos);
 			if (divisor != 0) {
 				term /= divisor;
 			}
-		} else if (op == '%') {
+		} else if (expr[*pos] == '%') {
 			(*pos)++;
-			long divisor = filson_parse_factor(expr, pos);
+			divisor = filson_parse_factor(expr, pos);
 			if (divisor != 0) {
 				term %= divisor;
 			}
@@ -186,36 +231,214 @@ filson_parse_term(const char *expr, int *pos)
 	return term;
 }
 
-static int
-filson_evaluate_arithmetic(const char *expr)
+static long
+filson_parse_addexpr(const char *expr, int *pos)
 {
 	long result;
+
+	result = filson_parse_term(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '+') {
+			(*pos)++;
+			result += filson_parse_term(expr, pos);
+		} else if (expr[*pos] == '-') {
+			(*pos)++;
+			result -= filson_parse_term(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_shift(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_addexpr(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '<' && expr[*pos + 1] == '<') {
+			*pos += 2;
+			result <<= filson_parse_addexpr(expr, pos);
+		} else if (expr[*pos] == '>' && expr[*pos + 1] == '>') {
+			*pos += 2;
+			result >>= filson_parse_addexpr(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_comparison(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_shift(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '<' && expr[*pos + 1] == '=') {
+			*pos += 2;
+			result = result <= filson_parse_shift(expr, pos);
+		} else if (expr[*pos] == '>' && expr[*pos + 1] == '=') {
+			*pos += 2;
+			result = result >= filson_parse_shift(expr, pos);
+		} else if (expr[*pos] == '<') {
+			(*pos)++;
+			result = result < filson_parse_shift(expr, pos);
+		} else if (expr[*pos] == '>') {
+			(*pos)++;
+			result = result > filson_parse_shift(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_equality(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_comparison(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '=' && expr[*pos + 1] == '=') {
+			*pos += 2;
+			result = result == filson_parse_comparison(expr, pos);
+		} else if (expr[*pos] == '!' && expr[*pos + 1] == '=') {
+			*pos += 2;
+			result = result != filson_parse_comparison(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_bitand(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_equality(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '&' && expr[*pos + 1] != '&') {
+			(*pos)++;
+			result &= filson_parse_equality(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_bitxor(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_bitand(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '^') {
+			(*pos)++;
+			result ^= filson_parse_bitand(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_bitor(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_bitxor(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '|' && expr[*pos + 1] != '|') {
+			(*pos)++;
+			result |= filson_parse_bitxor(expr, pos);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_logand(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_bitor(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '&' && expr[*pos + 1] == '&') {
+			*pos += 2;
+			result = (result != 0) & (filson_parse_bitor(expr, pos) != 0);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_parse_logor(const char *expr, int *pos)
+{
+	long result;
+
+	result = filson_parse_logand(expr, pos);
+	while (1) {
+		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
+			(*pos)++;
+		}
+		if (expr[*pos] == '|' && expr[*pos + 1] == '|') {
+			*pos += 2;
+			result = (result != 0) | (filson_parse_logand(expr, pos) != 0);
+		} else {
+			break;
+		}
+	}
+	return result;
+}
+
+static long
+filson_evaluate_arithmetic(const char *expr)
+{
 	int pos;
-	char op;
 
 	if (expr == NULL || expr[0] == '\0') {
 		return 0;
 	}
 	pos = 0;
-	result = filson_parse_term(expr, &pos);
-	while (1) {
-		while (expr[pos] == ' ' || expr[pos] == '\t') {
-			pos++;
-		}
-		op = expr[pos];
-		if (op == '+') {
-			pos++;
-			result += filson_parse_term(expr, &pos);
-		} else if (op == '-' && (pos == 0 || expr[pos - 1] == ' ' || expr[pos - 1] == '\t' || expr[pos - 1] == '+' || expr[pos - 1] == '-' || expr[pos - 1] == '*' || expr[pos - 1] == '/' || expr[pos - 1] == '%' || expr[pos - 1] == '(')) {
-			pos++;
-			result -= filson_parse_term(expr, &pos);
-		} else if (op == ')' || op == '\0') {
-			break;
-		} else {
-			break;
-		}
-	}
-	return (int)result;
+	return filson_parse_logor(expr, &pos);
 }
 
 static char *
@@ -274,10 +497,10 @@ filson_expand_command_substitutions(const char *line)
 					cmd[k] = line[i + 3 + k];
 				}
 				cmd[k] = '\0';
-				int arith_result = filson_evaluate_arithmetic(cmd);
+				long arith_result = filson_evaluate_arithmetic(cmd);
 				free(cmd);
 				char result_buf[64];
-				snprintf(result_buf, sizeof(result_buf), "%d", arith_result);
+				snprintf(result_buf, sizeof(result_buf), "%ld", arith_result);
 				if (out_len + (int)strlen(result_buf) + 1 > out_cap) {
 					while (out_len + (int)strlen(result_buf) + 1 > out_cap) {
 						out_cap *= 2;
@@ -543,7 +766,7 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 				fd_in = open(infiles[i], O_RDONLY);
 				if (fd_in < 0) {
 					perror("filson");
-					exit(EXIT_FAILURE);
+					_exit(EXIT_FAILURE);
 				}
 				dup2(fd_in, 0);
 				close(fd_in);
@@ -554,7 +777,7 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 				fd_out = open(outfiles[i], O_WRONLY | O_CREAT | (out_append[i] ? O_APPEND : O_TRUNC), 0644);
 				if (fd_out < 0) {
 					perror("filson");
-					exit(EXIT_FAILURE);
+					_exit(EXIT_FAILURE);
 				}
 				dup2(fd_out, 1);
 				close(fd_out);
@@ -567,7 +790,7 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 				fd_err = open(errfiles[i], O_WRONLY | O_CREAT | (err_append[i] ? O_APPEND : O_TRUNC), 0644);
 				if (fd_err < 0) {
 					perror("filson");
-					exit(EXIT_FAILURE);
+					_exit(EXIT_FAILURE);
 				}
 				dup2(fd_err, 2);
 				close(fd_err);
@@ -577,8 +800,8 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 				close(pipes[j][1]);
 			}
 			execvp(argvv[i][0], argvv[i]);
-			perror("filson");
-			exit(EXIT_FAILURE);
+			warn("%s", argvv[i][0]);
+			_exit(EXIT_FAILURE);
 		} else if (pids[i] < 0) {
 			perror("filson");
 			filson_last_cmd_success = 0;
@@ -726,6 +949,9 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	}
 	items[item_count] = NULL;
 	expanded_items = filson_expand_globs(items);
+	if (expanded_items != items) {
+		free(items);
+	}
 	status = 1;
 	for (i = 0; expanded_items[i] != NULL; i++) {
 		snprintf(item_buf, sizeof(item_buf), "%s", expanded_items[i]);
@@ -1022,6 +1248,7 @@ static int
 filson_execute_parsed_segment(char **tokens, int start, int end)
 {
 	int i, j, k;
+	int argc;
 	int background, stage_count;
 	int pos[64], has_redir;
 	char *infiles[64], *outfiles[64], *errfiles[64];
@@ -1078,9 +1305,17 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 			free(segment);
 			return k;
 		}
+		for (i = start; i < end; i++) {
+			if (strcmp(tokens[i], ";") == 0) {
+				k = filson_execute_and_chain(segment);
+				free(segment);
+				return k;
+			}
+		}
 		saved_end = tokens[end];
 		tokens[end] = NULL;
-		k = filson_execute(tokens + start, background, segment);
+		argc = end - start;
+		k = filson_execute(tokens + start, argc, background, segment);
 		tokens[end] = saved_end;
 		free(segment);
 		return k;
@@ -1183,6 +1418,77 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 		fprintf(stderr, "filson: allocation error\n");
 		filson_last_cmd_success = 0;
 		return 1;
+	}
+	if (stage_count == 1 && !background) {
+		int saved_in, saved_out, saved_err;
+		int fd_in, fd_out, fd_err;
+		int redir_ok;
+
+		saved_in = -1;
+		saved_out = -1;
+		saved_err = -1;
+		fd_in = -1;
+		fd_out = -1;
+		fd_err = -1;
+		redir_ok = 1;
+		if (infiles[0] != NULL) {
+			saved_in = dup(STDIN_FILENO);
+			fd_in = open(infiles[0], O_RDONLY);
+			if (fd_in < 0) {
+				warn("%s", infiles[0]);
+				redir_ok = 0;
+			} else {
+				dup2(fd_in, STDIN_FILENO);
+				close(fd_in);
+			}
+		}
+		if (redir_ok && outfiles[0] != NULL) {
+			saved_out = dup(STDOUT_FILENO);
+			fd_out = open(outfiles[0], O_WRONLY | O_CREAT |
+			    (out_append[0] ? O_APPEND : O_TRUNC), 0644);
+			if (fd_out < 0) {
+				warn("%s", outfiles[0]);
+				redir_ok = 0;
+			} else {
+				dup2(fd_out, STDOUT_FILENO);
+				close(fd_out);
+			}
+		}
+		if (redir_ok && err_to_out[0]) {
+			saved_err = dup(STDERR_FILENO);
+			dup2(STDOUT_FILENO, STDERR_FILENO);
+		} else if (redir_ok && errfiles[0] != NULL) {
+			saved_err = dup(STDERR_FILENO);
+			fd_err = open(errfiles[0], O_WRONLY | O_CREAT |
+			    (err_append[0] ? O_APPEND : O_TRUNC), 0644);
+			if (fd_err < 0) {
+				warn("%s", errfiles[0]);
+				redir_ok = 0;
+			} else {
+				dup2(fd_err, STDERR_FILENO);
+				close(fd_err);
+			}
+		}
+		if (redir_ok) {
+			k = filson_execute(argvv[0], pos[0], 0, segment);
+		} else {
+			filson_last_cmd_success = 0;
+			k = 1;
+		}
+		if (saved_in >= 0) {
+			dup2(saved_in, STDIN_FILENO);
+			close(saved_in);
+		}
+		if (saved_out >= 0) {
+			dup2(saved_out, STDOUT_FILENO);
+			close(saved_out);
+		}
+		if (saved_err >= 0) {
+			dup2(saved_err, STDERR_FILENO);
+			close(saved_err);
+		}
+		free(segment);
+		return k;
 	}
 	k = filson_execute_pipeline(argvv, infiles, outfiles, out_append, errfiles, err_append, err_to_out, stage_count, background, segment);
 	free(segment);
@@ -1357,6 +1663,11 @@ filson_execute_and_chain(char *line)
 			j++;
 		}
 		if (j == i) {
+			if (args[i] != NULL && strcmp(args[i], ";") == 0) {
+				should_run = 1;
+				i++;
+				continue;
+			}
 			fprintf(stderr, "filson: syntax error\n");
 			filson_last_cmd_success = 0;
 			status = 1;

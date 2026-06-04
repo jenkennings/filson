@@ -6,7 +6,7 @@
 #include <fcntl.h>
 
 int filson_set(char **args);
-int filson_execute(char **args, int background, char *segment);
+int filson_execute(char **args, int argc, int background, char *segment);
 extern int filson_last_cmd_success;
 
 #define TEST_PASS(name) printf("[PASS] %s\n", name)
@@ -266,7 +266,7 @@ test_inline_assignment_with_command(void)
 	stdout_backup = dup(1);
 	fd_out = open("/tmp/filson_inline_assign_out.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	dup2(fd_out, 1);
-	filson_execute(args, 0, "INLINE_TEST_VAR=inline_value echo $INLINE_TEST_VAR");
+	filson_execute(args, 3, 0, "INLINE_TEST_VAR=inline_value echo $INLINE_TEST_VAR");
 	fflush(stdout);
 	dup2(stdout_backup, 1);
 	close(fd_out);
@@ -307,7 +307,7 @@ test_assignment_only_sets_shell_env(void)
 	char *value;
 
 	unsetenv("ONLY_ASSIGN_VAR");
-	filson_execute(args, 0, "ONLY_ASSIGN_VAR=only_value");
+	filson_execute(args, 1, 0, "ONLY_ASSIGN_VAR=only_value");
 	value = getenv("ONLY_ASSIGN_VAR");
 	if (value == NULL || strcmp(value, "only_value") != 0) {
 		TEST_FAIL("assignment_only_sets_shell_env", "assignment-only form did not persist");
