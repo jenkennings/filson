@@ -268,6 +268,35 @@ filson_get_pospar_count(void)
 }
 
 int
+filson_shift_posparams(int n)
+{
+	struct filson_param_frame *fr;
+	int i;
+
+	if (!filson_has_active_function()) {
+		return -1;
+	}
+	fr = &filson_call_stack[filson_call_depth - 1];
+	if (n > fr->count - 1) {
+		return -1;
+	}
+	if (n <= 0) {
+		return 0;
+	}
+	for (i = 1; i < fr->count - n; i++) {
+		if (fr->params[i] != NULL) {
+			free(fr->params[i]);
+		}
+		fr->params[i] = fr->params[i + n];
+	}
+	for (i = fr->count - n; i < fr->count; i++) {
+		fr->params[i] = NULL;
+	}
+	fr->count -= n;
+	return 0;
+}
+
+int
 filson_has_active_function(void)
 {
 	return filson_call_depth > 0;

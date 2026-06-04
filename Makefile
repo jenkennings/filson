@@ -13,7 +13,7 @@ TEST_SCRIPT_EXEC = test_script_execution
 TEST_IF_EXEC = test_if_then_else
 
 # Source files
-MAIN_SRC = filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c filson_main.c
+MAIN_SRC = filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c filson_main.c
 TEST_SRC = test_builtins.c
 TEST_ENV_SRC = test_environment_variables.c
 TEST_SEC_SRC = test_security.c
@@ -40,28 +40,28 @@ $(MAIN_EXEC): $(MAIN_SRC)
 	@echo "✓ Built $(MAIN_EXEC)"
 
 # Build test_builtins
-$(TEST_EXEC): $(TEST_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_EXEC) $(TEST_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+$(TEST_EXEC): $(TEST_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_EXEC) $(TEST_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
 	@echo "✓ Built $(TEST_EXEC)"
 
 # Build test_environment_variables
-$(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+$(TEST_ENV_EXEC): $(TEST_ENV_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_ENV_EXEC) $(TEST_ENV_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
 	@echo "✓ Built $(TEST_ENV_EXEC)"
 
 # Build test_security
-$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+$(TEST_SEC_EXEC): $(TEST_SEC_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_SEC_EXEC) $(TEST_SEC_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
 	@echo "✓ Built $(TEST_SEC_EXEC)"
 
 # Build test_pipelines
-$(TEST_PIPE_EXEC): $(TEST_PIPE_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_PIPE_EXEC) $(TEST_PIPE_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+$(TEST_PIPE_EXEC): $(TEST_PIPE_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_PIPE_EXEC) $(TEST_PIPE_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
 	@echo "✓ Built $(TEST_PIPE_EXEC)"
 
 # Build test_globbing
-$(TEST_GLOB_EXEC): $(TEST_GLOB_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_GLOB_EXEC) $(TEST_GLOB_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+$(TEST_GLOB_EXEC): $(TEST_GLOB_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_GLOB_EXEC) $(TEST_GLOB_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
 	@echo "✓ Built $(TEST_GLOB_EXEC)"
 
 # Build test_script_execution
@@ -70,8 +70,8 @@ $(TEST_SCRIPT_EXEC): $(TEST_SCRIPT_SRC) $(MAIN_SRC)
 	@echo "✓ Built $(TEST_SCRIPT_EXEC)"
 
 # Build test_if_then_else
-$(TEST_IF_EXEC): $(TEST_IF_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_IF_EXEC) $(TEST_IF_SRC) filson.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+$(TEST_IF_EXEC): $(TEST_IF_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(TEST_IF_EXEC) $(TEST_IF_SRC) filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c
 	@echo "✓ Built $(TEST_IF_EXEC)"
 
 # Run tests

@@ -15,6 +15,7 @@ void filson_print_all_function_declarations(void);
 
 char *filson_get_pospar(int idx);
 int filson_get_pospar_count(void);
+int filson_shift_posparams(int n);
 int filson_has_active_function(void);
 void filson_declare_local(const char *name);
 int filson_return_from_function(int ret_value);

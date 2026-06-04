@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <fnmatch.h>
 #include <fcntl.h>
 #include "jobcontrol.h"
 #include "pipelines.h"
@@ -627,7 +628,7 @@ filson_find_matching_done(char **tokens, int loop_pos, int *done_pos)
 	depth = 1;
 	i = loop_pos + 1;
 	while (tokens[i] != NULL && depth > 0) {
-		if (strcmp(tokens[i], "for") == 0 || strcmp(tokens[i], "while") == 0) {
+		if (strcmp(tokens[i], "for") == 0 || strcmp(tokens[i], "while") == 0 || strcmp(tokens[i], "until") == 0 || strcmp(tokens[i], "until") == 0) {
 			depth++;
 		} else if (strcmp(tokens[i], "done") == 0) {
 			depth--;
@@ -649,7 +650,7 @@ filson_find_loop_do(char **tokens, int start, int end, int *do_pos)
 	depth = 0;
 	i = start + 1;
 	while (i < end && tokens[i] != NULL) {
-		if (strcmp(tokens[i], "for") == 0 || strcmp(tokens[i], "while") == 0) {
+		if (strcmp(tokens[i], "for") == 0 || strcmp(tokens[i], "while") == 0 || strcmp(tokens[i], "until") == 0 || strcmp(tokens[i], "until") == 0) {
 			depth++;
 		} else if (strcmp(tokens[i], "done") == 0) {
 			depth--;
@@ -797,6 +798,122 @@ filson_execute_while_loop(char **tokens, int start, int end)
 		}
 		if (status == 0) {
 			break;
+		}
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+static int
+filson_execute_until_loop(char **tokens, int start, int end)
+{
+	int do_pos, cond_start, cond_end;
+	int body_start, body_end;
+	int status;
+	extern int filson_break_flag;
+	extern int filson_continue_flag;
+
+	if (!filson_find_loop_do(tokens, start, end, &do_pos)) {
+		fprintf(stderr, "filson: syntax error: missing 'do' in until loop\n");
+		filson_last_cmd_success = 0;
+		return 0;
+	}
+	cond_start = start + 1;
+	cond_end = do_pos;
+	body_start = do_pos + 1;
+	body_end = end;
+
+	while (1) {
+		status = filson_execute_parsed_segment(tokens, cond_start, cond_end);
+		if (filson_last_cmd_success) {
+			break;
+		}
+		filson_break_flag = 0;
+		filson_continue_flag = 0;
+		status = filson_execute_parsed_segment(tokens, body_start, body_end);
+		if (filson_break_flag) {
+			filson_break_flag = 0;
+			break;
+		}
+		if (filson_continue_flag) {
+			filson_continue_flag = 0;
+			continue;
+		}
+		if (status == 0) {
+			break;
+		}
+	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+static int
+filson_string_matches_pattern(char *str, char *pattern)
+{
+	return fnmatch(pattern, str, 0) == 0;
+}
+
+static int
+filson_find_matching_esac(char **tokens, int case_pos, int *esac_pos)
+{
+	int i, depth;
+
+	depth = 1;
+	i = case_pos + 1;
+	while (tokens[i] != NULL && depth > 0) {
+		if (strcmp(tokens[i], "case") == 0) {
+			depth++;
+		} else if (strcmp(tokens[i], "esac") == 0) {
+			depth--;
+		}
+		i++;
+	}
+	if (depth == 0) {
+		*esac_pos = i - 1;
+		return 1;
+	}
+	return 0;
+}
+
+static int
+filson_execute_case_stmt(char **tokens, int start, int end)
+{
+	int i, matched;
+	char *case_var, *pattern;
+	char *var_value;
+
+	if (start + 1 >= end) {
+		fprintf(stderr, "filson: syntax error: missing case expression\n");
+		filson_last_cmd_success = 0;
+		return 0;
+	}
+	case_var = tokens[start + 1];
+	var_value = getenv(case_var);
+	if (var_value == NULL) {
+		var_value = "";
+	}
+
+	matched = 0;
+	i = start + 2;
+	while (i < end && tokens[i] != NULL) {
+		if (strcmp(tokens[i], ";;") == 0) {
+			i++;
+			continue;
+		}
+		pattern = tokens[i];
+		i++;
+		while (i < end && tokens[i] != NULL && strcmp(tokens[i], ";;") != 0) {
+			if (filson_string_matches_pattern(var_value, pattern)) {
+				matched = 1;
+			}
+			if (matched) {
+				filson_execute_parsed_segment(tokens, i, i + 1);
+			}
+			i++;
+		}
+		if (tokens[i] != NULL && strcmp(tokens[i], ";;") == 0) {
+			matched = 0;
+			i++;
 		}
 	}
 	filson_last_cmd_success = 1;
@@ -1180,9 +1297,63 @@ filson_execute_and_chain(char *line)
 				}
 			}
 			continue;
+	} else if (args[i] != NULL && strcmp(args[i], "until") == 0 && should_run) {
+		int done_pos;
+		if (!filson_find_matching_done(args, i, &done_pos)) {
+			fprintf(stderr, "filson: syntax error: missing 'done' for 'until'\n");
+			filson_last_cmd_success = 0;
+			status = 1;
+			break;
+		}
+		status = filson_execute_until_loop(args, i, done_pos + 1);
+		if (status == 0) {
+			break;
+		}
+		i = done_pos + 1;
+		should_run = 1;
+		if (args[i] != NULL) {
+			if (strcmp(args[i], ";") == 0) {
+				should_run = 1;
+				i++;
+			} else if (strcmp(args[i], "&&") == 0) {
+				should_run = filson_last_cmd_success;
+				i++;
+			} else if (strcmp(args[i], "||") == 0) {
+				should_run = !filson_last_cmd_success;
+				i++;
+			}
+		}
+		continue;
+	} else if (args[i] != NULL && strcmp(args[i], "case") == 0 && should_run) {
+		int esac_pos;
+		if (!filson_find_matching_esac(args, i, &esac_pos)) {
+			fprintf(stderr, "filson: syntax error: missing 'esac' for 'case'\n");
+			filson_last_cmd_success = 0;
+			status = 1;
+			break;
+		}
+		status = filson_execute_case_stmt(args, i, esac_pos + 1);
+		if (status == 0) {
+			break;
+		}
+		i = esac_pos + 1;
+		should_run = 1;
+		if (args[i] != NULL) {
+			if (strcmp(args[i], ";") == 0) {
+				should_run = 1;
+				i++;
+			} else if (strcmp(args[i], "&&") == 0) {
+				should_run = filson_last_cmd_success;
+				i++;
+			} else if (strcmp(args[i], "||") == 0) {
+				should_run = !filson_last_cmd_success;
+				i++;
+			}
+		}
+		continue;
 		}
 		j = i;
-		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0 && strcmp(args[j], "if") != 0 && strcmp(args[j], "for") != 0 && strcmp(args[j], "while") != 0) {
+		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0 && strcmp(args[j], "if") != 0 && strcmp(args[j], "for") != 0 && strcmp(args[j], "while") != 0 && strcmp(args[j], "until") != 0 && strcmp(args[j], "case") != 0) {
 			j++;
 		}
 		if (j == i) {
