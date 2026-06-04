@@ -671,6 +671,8 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	int i, status, item_count;
 	char item_buf[256];
 	char **items, **expanded_items;
+	extern int filson_break_flag;
+	extern int filson_continue_flag;
 
 	if (!filson_find_loop_do(tokens, start, end, &do_pos)) {
 		fprintf(stderr, "filson: syntax error: missing 'do' in for loop\n");
@@ -727,7 +729,17 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	for (i = 0; expanded_items[i] != NULL; i++) {
 		snprintf(item_buf, sizeof(item_buf), "%s", expanded_items[i]);
 		setenv(var_name, item_buf, 1);
+		filson_break_flag = 0;
+		filson_continue_flag = 0;
 		status = filson_execute_parsed_segment(tokens, body_start, body_end);
+		if (filson_break_flag) {
+			filson_break_flag = 0;
+			break;
+		}
+		if (filson_continue_flag) {
+			filson_continue_flag = 0;
+			continue;
+		}
 		if (status == 0) {
 			break;
 		}
@@ -743,6 +755,8 @@ filson_execute_while_loop(char **tokens, int start, int end)
 	int do_pos, cond_start, cond_end;
 	int body_start, body_end;
 	int status;
+	extern int filson_break_flag;
+	extern int filson_continue_flag;
 
 	if (!filson_find_loop_do(tokens, start, end, &do_pos)) {
 		fprintf(stderr, "filson: syntax error: missing 'do' in while loop\n");
@@ -770,7 +784,17 @@ filson_execute_while_loop(char **tokens, int start, int end)
 		if (!filson_last_cmd_success) {
 			break;
 		}
+		filson_break_flag = 0;
+		filson_continue_flag = 0;
 		status = filson_execute_parsed_segment(tokens, body_start, body_end);
+		if (filson_break_flag) {
+			filson_break_flag = 0;
+			break;
+		}
+		if (filson_continue_flag) {
+			filson_continue_flag = 0;
+			continue;
+		}
 		if (status == 0) {
 			break;
 		}

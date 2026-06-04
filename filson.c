@@ -29,6 +29,8 @@ int filson_test(char **args);
 int filson_local(char **args);
 int filson_return_stmt(char **args);
 int filson_declare_func(char **args);
+int filson_break(char **args);
+int filson_continue(char **args);
 int filson_is_valid_varname(const char *name);
 int filson_path_is_safe(void);
 int filson_arg_count(char **args);
@@ -38,6 +40,8 @@ static int filson_run_command_only(char **args, int background, char *segment);
 static int filson_run_with_temp_assignments(char **args, int assign_count, int background, char *segment);
 
 int filson_last_cmd_success = 1;
+int filson_break_flag = 0;
+int filson_continue_flag = 0;
 
 char *builtin_str[] = {
 	"cd",
@@ -59,7 +63,9 @@ char *builtin_str[] = {
 	"test",
 	"local",
 	"return",
-	"declare"
+	"declare",
+	"break",
+	"continue"
 };
 
 int (*builtin_func[])(char **) = {
@@ -82,7 +88,9 @@ int (*builtin_func[])(char **) = {
 	&filson_test,
 	&filson_local,
 	&filson_return_stmt,
-	&filson_declare_func
+	&filson_declare_func,
+	&filson_break,
+	&filson_continue
 };
 
 int
@@ -744,6 +752,24 @@ filson_run_with_temp_assignments(char **args, int assign_count, int background, 
 		free(old_values[i]);
 	}
 	return result;
+}
+
+int
+filson_break(char **args)
+{
+	(void)args;
+	filson_break_flag = 1;
+	filson_last_cmd_success = 0;
+	return 1;
+}
+
+int
+filson_continue(char **args)
+{
+	(void)args;
+	filson_continue_flag = 1;
+	filson_last_cmd_success = 0;
+	return 1;
 }
 
 int
