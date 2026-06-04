@@ -13,7 +13,7 @@ TEST_SCRIPT_EXEC = test_script_execution
 TEST_IF_EXEC = test_if_then_else
 
 # Source files
-MAIN_SRC = filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c test.c filson_main.c
+MAIN_SRC = filson.c builtins.c runtime_state.c expansion.c shell_session.c history.c jobcontrol.c pipelines.c autocomplete.c globbing.c filson_main.c
 TEST_SRC = test_builtins.c
 TEST_ENV_SRC = test_environment_variables.c
 TEST_SEC_SRC = test_security.c
