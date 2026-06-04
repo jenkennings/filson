@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <err.h>
 #include "history.h"
 #include "jobcontrol.h"
 #include "pipelines.h"
@@ -31,7 +32,7 @@ int filson_last_cmd_success = 1;
 int filson_break_flag = 0;
 int filson_continue_flag = 0;
 
-char *builtin_str[] = {
+const char *builtin_str[] = {
 	"cd",
 	"help",
 	"exit",
@@ -90,7 +91,7 @@ int (*builtin_func[])(char **) = {
 int
 filson_num_builtins(void)
 {
-	return sizeof(builtin_str) / sizeof(char *);
+	return sizeof(builtin_str) / sizeof(*builtin_str);
 }
 
 int
@@ -143,16 +144,15 @@ filson_path_is_safe(void)
 	if (path_str == NULL) {
 		return 1;
 	}
-	path_copy = malloc(strlen(path_str) + 1);
+	path_copy = strdup(path_str);
 	if (path_copy == NULL) {
 		return 1;
 	}
-	strcpy(path_copy, path_str);
 	safe = 1;
 	token = strtok(path_copy, ":");
 	while (token != NULL) {
 		if (strcmp(token, ".") == 0 || strcmp(token, "") == 0) {
-			fprintf(stderr, "filson: error - unsafe PATH: current directory entry found; refusing external execution\n");
+			warnx("unsafe PATH: current directory entry found; refusing external execution");
 			safe = 0;
 			break;
 		}
@@ -176,18 +176,16 @@ filson_launch(char **args, int background, char *segment)
 	pid = fork();
 	if (pid == 0) {
 		expanded = filson_expand_globs(args);
-		if (execvp(expanded[0], expanded) == -1) {
-			perror("filson");
-		}
-		exit(EXIT_FAILURE);
+		execvp(expanded[0], expanded);
+		err(1, "%s", expanded[0]);
 	} else if (pid < 0) {
-		perror("filson");
+		warn("fork");
 		filson_last_cmd_success = 0;
 	} else {
 		if (background) {
 			job_id = filson_add_job(pid, segment, 0);
 			if (job_id < 0) {
-				fprintf(stderr, "filson: too many background jobs\n");
+				warnx("too many background jobs");
 				filson_last_cmd_success = 0;
 			} else {
 				printf("[%d] %d\n", job_id, pid);
@@ -197,7 +195,7 @@ filson_launch(char **args, int background, char *segment)
 			do {
 				waited = waitpid(pid, &status, WUNTRACED);
 				if (waited < 0) {
-					perror("filson");
+					warn("waitpid");
 					filson_last_cmd_success = 0;
 					return 1;
 				}
@@ -233,20 +231,19 @@ filson_run_command_only(char **args, int background, char *segment)
 		return 1;
 	}
 	if (filson_arg_count(args) > FILSON_MAX_ARGS) {
-		fprintf(stderr, "filson: too many arguments\n");
+		warnx("too many arguments");
 		filson_last_cmd_success = 0;
 		return 1;
 	}
 	alias_expanded = NULL;
 	alias_value = filson_lookup_alias(args[0]);
 	if (alias_value != NULL) {
-		alias_expanded = malloc(strlen(alias_value) + 1);
+		alias_expanded = strdup(alias_value);
 		if (alias_expanded == NULL) {
-			perror("filson");
+			warn(NULL);
 			filson_last_cmd_success = 0;
 			return 1;
 		}
-		strcpy(alias_expanded, alias_value);
 		args[0] = alias_expanded;
 	}
 	if (filson_lookup_function(args[0]) != NULL) {
@@ -257,7 +254,7 @@ filson_run_command_only(char **args, int background, char *segment)
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
 			if (background) {
-				fprintf(stderr, "filson: cannot run built-in in background\n");
+				warnx("cannot run built-in in background");
 				filson_last_cmd_success = 0;
 				free(alias_expanded);
 				return 1;
@@ -290,7 +287,7 @@ filson_run_with_temp_assignments(char **args, int assign_count, int background, 
 
 	assert(args != NULL);
 	if (assign_count > FILSON_MAX_INLINE_ASSIGNMENTS) {
-		fprintf(stderr, "filson: too many inline assignments\n");
+		warnx("too many inline assignments");
 		filson_last_cmd_success = 0;
 		return 1;
 	}
@@ -303,7 +300,7 @@ filson_run_with_temp_assignments(char **args, int assign_count, int background, 
 		if (!filson_parse_assignment_token(args[i], &names[i], &value)) {
 			filson_last_cmd_success = 0;
 			filson_free_assignment_buffers(i, names, old_values);
-			fprintf(stderr, "filson: invalid inline assignment\n");
+			warnx("invalid inline assignment");
 			return 1;
 		}
 		old_value = getenv(names[i]);
@@ -313,12 +310,12 @@ filson_run_with_temp_assignments(char **args, int assign_count, int background, 
 			if (old_values[i] == NULL) {
 				filson_last_cmd_success = 0;
 				filson_free_assignment_buffers(i + 1, names, old_values);
-				fprintf(stderr, "filson: allocation error\n");
+				warn(NULL);
 				return 1;
 			}
 		}
 		if (setenv(names[i], value, 1) != 0) {
-			perror("filson");
+			warn("setenv");
 			filson_last_cmd_success = 0;
 			filson_restore_assignment_environment(i, names, old_values, had_old);
 			filson_free_assignment_buffers(i + 1, names, old_values);
@@ -375,12 +372,12 @@ filson_execute(char **args, int background, char *segment)
 		if (args[assign_count] == NULL) {
 			for (i = 0; i < assign_count; i++) {
 				if (!filson_parse_assignment_token(args[i], &name, &value)) {
-					fprintf(stderr, "filson: invalid assignment\n");
+					warnx("invalid assignment");
 					filson_last_cmd_success = 0;
 					return 1;
 				}
 				if (setenv(name, value, 1) != 0) {
-					perror("filson");
+					warn("setenv");
 					free(name);
 					filson_last_cmd_success = 0;
 					return 1;

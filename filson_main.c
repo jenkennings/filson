@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <err.h>
 #include "shell_session.h"
 
 int
@@ -16,13 +17,10 @@ main(int argc, char **argv)
 	if (argc == 2) {
 		fd = open(argv[1], O_RDONLY);
 		if (fd < 0) {
-			perror("filson");
-			return EXIT_FAILURE;
+			err(1, "%s", argv[1]);
 		}
 		if (dup2(fd, STDIN_FILENO) < 0) {
-			perror("filson");
-			close(fd);
-			return EXIT_FAILURE;
+			err(1, "dup2");
 		}
 		close(fd);
 	}

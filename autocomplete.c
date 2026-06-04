@@ -267,7 +267,7 @@ filson_collect_path_exec_matches(const char *prefix, struct filson_match_list *m
 }
 
 static void
-filson_collect_builtin_matches(const char *prefix, char **builtins, int builtin_count,
+filson_collect_builtin_matches(const char *prefix, const char **builtins, int builtin_count,
 	struct filson_match_list *matches)
 {
 	int i;
@@ -281,7 +281,7 @@ filson_collect_builtin_matches(const char *prefix, char **builtins, int builtin_
 
 static void
 filson_collect_completions(const char *token, int command_pos,
-	char **builtins, int builtin_count, struct filson_match_list *matches)
+	const char **builtins, int builtin_count, struct filson_match_list *matches)
 {
 	const char *slash;
 	char dir_open[4096];
@@ -320,7 +320,7 @@ filson_collect_completions(const char *token, int command_pos,
 
 void
 filson_handle_autocomplete(char **buffer, int *bufsize, int *position,
-	char **builtins, int builtin_count, void (*refresh_line)(const char *))
+	const char **builtins, int builtin_count, void (*refresh_line)(const char *))
 {
 	int token_start;
 	int token_end;

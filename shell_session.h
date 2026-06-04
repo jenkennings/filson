@@ -1,7 +1,7 @@
 #ifndef SHELL_SESSION_H
 #define SHELL_SESSION_H
 
-extern char *builtin_str[];
+extern const char *builtin_str[];
 
 int filson_num_builtins(void);
 char *filson_expand_string_variables(const char *str);

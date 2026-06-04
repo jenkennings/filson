@@ -12,7 +12,7 @@
 extern int filson_last_cmd_success;
 extern int filson_break_flag;
 extern int filson_continue_flag;
-extern char *builtin_str[];
+extern const char *builtin_str[];
 
 int filson_num_builtins(void);
 int filson_is_valid_varname(const char *name);
