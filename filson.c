@@ -324,8 +324,17 @@ filson_run_command_only(char **args, int argc, int background, char *segment)
 			for (ai = 0; ai < argc && args[ai] != NULL; ai++) {
 				char *ev;
 				unsigned char first_byte;
+				int ev_was_quoted;
 				ev = filson_expand_string_variables(args[ai]);
 				first_byte = (unsigned char)args[ai][0];
+				ev_was_quoted = 0;
+				if ((unsigned char)ev[0] == 0x02) {
+					char *stripped = strdup(ev + 1);
+					if (ev != args[ai])
+						free(ev);
+					ev = stripped;
+					ev_was_quoted = 1;
+				}
 				if (ev != args[ai] && ev[0] == '\0' &&
 				    first_byte != 0x01 && first_byte != 0x02 &&
 				    args[ai][0] == '$') {
@@ -333,6 +342,7 @@ filson_run_command_only(char **args, int argc, int background, char *segment)
 					continue;
 				}
 				if (first_byte != 0x01 && first_byte != 0x02 &&
+				    !ev_was_quoted &&
 				    !filson_noglob && filson_has_glob_chars(ev)) {
 					glob_t g;
 					int grc = filson_glob_expand(ev, &g);
