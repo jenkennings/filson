@@ -42,7 +42,11 @@ static struct filson_alias_entry filson_aliases[FILSON_MAX_ALIASES];
 static struct filson_func_entry filson_functions[FILSON_MAX_FUNCTIONS];
 static struct filson_param_frame filson_call_stack[FILSON_FUNC_CALL_DEPTH];
 static int filson_call_depth = 0;
-static int filson_function_return_requested = 0;
+static int filson_dot_depth = 0;
+int filson_function_return_requested = 0;
+
+static char *filson_global_posparams[FILSON_MAX_POSPARAMS];
+static int filson_global_pospar_count = 0;
 
 char *
 filson_lookup_alias(const char *name)
@@ -352,7 +356,13 @@ filson_get_pospar(int idx)
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth == 0) {
-		return NULL;
+		if (idx == 0) {
+			return getenv("FILSON_SCRIPT_PATH");
+		}
+		if (idx < 1 || idx > filson_global_pospar_count) {
+			return NULL;
+		}
+		return filson_global_posparams[idx - 1];
 	}
 	fr = &filson_call_stack[filson_call_depth - 1];
 	if (idx < 0 || idx >= fr->count) {
@@ -367,7 +377,7 @@ filson_get_pospar_count(void)
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth == 0) {
-		return 0;
+		return filson_global_pospar_count;
 	}
 	fr = &filson_call_stack[filson_call_depth - 1];
 	if (fr->count <= 1) {
@@ -408,7 +418,37 @@ filson_shift_posparams(int n)
 int
 filson_has_active_function(void)
 {
-	return filson_call_depth > 0;
+	return filson_call_depth > 0 || filson_dot_depth > 0;
+}
+
+void
+filson_set_posparams(char **args, int count)
+{
+	int i;
+	struct filson_param_frame *fr;
+
+	if (filson_call_depth > 0) {
+		fr = &filson_call_stack[filson_call_depth - 1];
+		for (i = 1; i < fr->count; i++) {
+			free(fr->params[i]);
+			fr->params[i] = NULL;
+		}
+		fr->count = 1;
+		for (i = 0; i < count && (i + 1) < FILSON_MAX_POSPARAMS; i++) {
+			fr->params[i + 1] = args[i] ? strdup(args[i]) : NULL;
+			fr->count++;
+		}
+		return;
+	}
+	for (i = 0; i < filson_global_pospar_count; i++) {
+		free(filson_global_posparams[i]);
+		filson_global_posparams[i] = NULL;
+	}
+	filson_global_pospar_count = 0;
+	for (i = 0; i < count && i < FILSON_MAX_POSPARAMS; i++) {
+		filson_global_posparams[i] = args[i] ? strdup(args[i]) : NULL;
+		filson_global_pospar_count++;
+	}
 }
 
 void
@@ -463,12 +503,49 @@ filson_restore_locals(void)
 int
 filson_return_from_function(int ret_value)
 {
-	if (filson_call_depth == 0) {
+	if (filson_call_depth == 0 && filson_dot_depth == 0) {
 		return 0;
 	}
-	filson_call_stack[filson_call_depth - 1].return_value = ret_value;
+	if (filson_call_depth > 0)
+		filson_call_stack[filson_call_depth - 1].return_value = ret_value;
+	else
+		filson_call_stack[0].return_value = ret_value;
 	filson_function_return_requested = 1;
 	return 1;
+}
+
+int
+filson_consume_return_value(void)
+{
+	int rv;
+
+	if (!filson_function_return_requested) {
+		return -1;
+	}
+	if (filson_call_depth == 0 && filson_dot_depth == 0) {
+		filson_function_return_requested = 0;
+		return -1;
+	}
+	if (filson_call_depth > 0)
+		rv = filson_call_stack[filson_call_depth - 1].return_value;
+	else
+		rv = filson_call_stack[0].return_value;
+	filson_function_return_requested = 0;
+	return rv;
+}
+
+void
+filson_push_source_frame(void)
+{
+	filson_dot_depth++;
+	filson_function_return_requested = 0;
+}
+
+void
+filson_pop_source_frame(void)
+{
+	if (filson_dot_depth > 0)
+		filson_dot_depth--;
 }
 
 int
@@ -497,16 +574,27 @@ filson_call_function(const char *name, char **args)
 	frame->return_value = 0;
 	frame->local_count = 0;
 	argc = 0;
-	frame->params[argc++] = (char *)name;
+	frame->params[argc++] = strdup(name);
 	for (i = 1; args[i] != NULL && argc < FILSON_MAX_POSPARAMS; i++) {
-		frame->params[argc++] = args[i];
+		frame->params[argc++] = strdup(args[i]);
 	}
 	frame->count = argc;
 	filson_call_depth++;
 	filson_function_return_requested = 0;
 	filson_execute_and_chain(body);
 	filson_restore_locals();
-	filson_call_depth--;
-	filson_last_cmd_success = 1;
+	{
+		int rv;
+		extern int filson_last_exit_status;
+		rv = frame->return_value;
+		filson_call_depth--;
+		for (i = 0; i < frame->count; i++) {
+			free(frame->params[i]);
+			frame->params[i] = NULL;
+		}
+		frame->count = 0;
+		filson_last_exit_status = rv;
+		filson_last_cmd_success = (rv == 0) ? 1 : 0;
+	}
 	return 1;
 }

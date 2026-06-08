@@ -20,8 +20,12 @@ char *filson_get_pospar(int idx);
 int filson_get_pospar_count(void);
 int filson_shift_posparams(int n);
 int filson_has_active_function(void);
+void filson_set_posparams(char **args, int count);
 void filson_declare_local(const char *name);
 int filson_return_from_function(int ret_value);
+int filson_consume_return_value(void);
+void filson_push_source_frame(void);
+void filson_pop_source_frame(void);
 int filson_call_function(const char *name, char **args);
 
 #endif

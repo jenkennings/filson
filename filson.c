@@ -30,7 +30,9 @@ static void filson_restore_assignment_environment(int count, char **names, char 
 #define FILSON_MAX_INLINE_ASSIGNMENTS 128
 
 int filson_last_cmd_success = 1;
+int filson_last_exit_status = 0;
 int filson_exit_code = 0;
+int filson_noglob = 0;
 int filson_exit_called = 0;
 int filson_break_flag = 0;
 int filson_continue_flag = 0;
@@ -62,7 +64,8 @@ const char *builtin_str[] = {
 	"source",
 	".",
 	"eval",
-	"unalias"
+	"unalias",
+	"trap"
 };
 
 static int
@@ -96,6 +99,7 @@ filson_dispatch_builtin(int index, char **args)
 	case 24: return filson_dot(args);
 	case 25: return filson_eval(args);
 	case 26: return filson_unalias(args);
+	case 27: return filson_trap(args);
 	default: return 1;
 	}
 }
@@ -241,8 +245,14 @@ filson_launch(char **args, int background, char *segment)
 				filson_last_cmd_success = 0;
 			} else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
 				filson_last_cmd_success = 1;
+				filson_last_exit_status = 0;
 			} else {
 				filson_last_cmd_success = 0;
+				if (WIFEXITED(status)) {
+					filson_last_exit_status = WEXITSTATUS(status);
+				} else if (WIFSIGNALED(status)) {
+					filson_last_exit_status = 128 + WTERMSIG(status);
+				}
 			}
 		}
 	}
@@ -280,19 +290,76 @@ filson_run_command_only(char **args, int argc, int background, char *segment)
 		args[0] = alias_expanded;
 	}
 	if (filson_lookup_function(args[0]) != NULL) {
-		result = filson_call_function(args[0], args);
+		int ai;
+		char *exp_args[FILSON_MAX_ARGS + 1];
+
+		for (ai = 0; ai < argc && args[ai] != NULL; ai++) {
+			if (ai > 0 && (unsigned char)args[ai][0] != 0x01)
+				exp_args[ai] = filson_expand_string_variables(args[ai]);
+			else
+				exp_args[ai] = args[ai];
+		}
+		exp_args[ai] = NULL;
+		result = filson_call_function(exp_args[0], exp_args);
+		for (ai = 1; ai < argc && args[ai] != NULL; ai++) {
+			if (exp_args[ai] != args[ai])
+				free(exp_args[ai]);
+		}
 		free(alias_expanded);
 		return result;
 	}
 	for (i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[0], builtin_str[i]) == 0) {
+			int ai;
+			int out_ai;
+			char *exp_args[FILSON_MAX_ARGS + 1];
+
 			if (background) {
 				warnx("cannot run built-in in background");
 				filson_last_cmd_success = 0;
 				free(alias_expanded);
 				return 1;
 			}
-			result = filson_dispatch_builtin(i, args);
+			out_ai = 0;
+			for (ai = 0; ai < argc && args[ai] != NULL; ai++) {
+				char *ev;
+				unsigned char first_byte;
+				ev = filson_expand_string_variables(args[ai]);
+				first_byte = (unsigned char)args[ai][0];
+				if (ev != args[ai] && ev[0] == '\0' &&
+				    first_byte != 0x01 && first_byte != 0x02 &&
+				    args[ai][0] == '$') {
+					free(ev);
+					continue;
+				}
+				if (first_byte != 0x01 && first_byte != 0x02 &&
+				    !filson_noglob && filson_has_glob_chars(ev)) {
+					glob_t g;
+					int grc = filson_glob_expand(ev, &g);
+					if (grc == 0) {
+						if (g.gl_pathc == 1 && strcmp(g.gl_pathv[0], ev) == 0) {
+							globfree(&g);
+						} else {
+							int gi;
+							for (gi = 0; gi < (int)g.gl_pathc &&
+							    out_ai < FILSON_MAX_ARGS; gi++) {
+								exp_args[out_ai++] = strdup(g.gl_pathv[gi]);
+							}
+							globfree(&g);
+							if (ev != args[ai])
+								free(ev);
+							continue;
+						}
+					}
+				}
+				exp_args[out_ai++] = ev;
+			}
+			exp_args[out_ai] = NULL;
+			result = filson_dispatch_builtin(i, exp_args);
+			for (ai = 0; ai < out_ai; ai++) {
+				if (exp_args[ai] != args[ai])
+					free(exp_args[ai]);
+			}
 			free(alias_expanded);
 			return result;
 		}
@@ -414,18 +481,25 @@ filson_execute(char **args, int argc, int background, char *segment)
 	if (assign_count > 0) {
 		if (assign_count == argc || args[assign_count] == NULL) {
 			for (i = 0; i < assign_count; i++) {
+				char *expanded_value;
+
 				if (!filson_parse_assignment_token(args[i], &name, &value)) {
 					warnx("invalid assignment");
 					filson_last_cmd_success = 0;
 					return 1;
 				}
-				if (setenv(name, value, 1) != 0) {
+				expanded_value = filson_expand_string_variables(value);
+				if (setenv(name, expanded_value != value ? expanded_value : value, 1) != 0) {
 					warn("setenv");
 					free(name);
+					if (expanded_value != value)
+						free(expanded_value);
 					filson_last_cmd_success = 0;
 					return 1;
 				}
 				free(name);
+				if (expanded_value != value)
+					free(expanded_value);
 			}
 			filson_last_cmd_success = 1;
 			return 1;

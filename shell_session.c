@@ -9,6 +9,7 @@
 #include "jobcontrol.h"
 #include "pipelines.h"
 #include "autocomplete.h"
+#include "expansion.h"
 #include "shell_session.h"
 
 extern int filson_last_cmd_success;
@@ -60,7 +61,8 @@ static void filson_toggle_prefix(char **buffer, int *bufsize, int *position, int
     const char *prefix);
 static int filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_pos);
 static char *filson_prepare_heredoc(const char *line);
-static int filson_funcdef_parse(const char *line, char *name_out, int name_max,
+int filson_needs_continuation(const char *buf);
+int filson_funcdef_parse(const char *line, char *name_out, int name_max,
     char **body_out, int *needs_more);
 
 static void
@@ -518,6 +520,12 @@ filson_split_line(char *line)
 	int j;
 	int in_single;
 	int in_double;
+	int brace_depth;
+	int paren_depth;
+	int unquoted_start;
+	int eq_tilde_escaped;
+	int started_in_single;
+	int started_in_double;
 
 	bufsize = FILSON_TOK_BUFSIZE;
 	position = 0;
@@ -528,7 +536,7 @@ filson_split_line(char *line)
 	}
 	i = 0;
 	while (line[i] != '\0') {
-		while (line[i] == ' ' || line[i] == '\t') {
+		while (line[i] == ' ' || line[i] == '\t' || line[i] == '\n') {
 			i++;
 		}
 		if (line[i] == '\0') {
@@ -537,22 +545,87 @@ filson_split_line(char *line)
 		j = 0;
 		in_single = 0;
 		in_double = 0;
+		brace_depth = 0;
+		paren_depth = 0;
+		unquoted_start = 0;
+		eq_tilde_escaped = 0;
+		started_in_single = 0;
+		started_in_double = 0;
 		while (line[i] != '\0') {
 			if (!in_double && line[i] == '\'') {
+				if (!in_single && j == 0)
+					started_in_single = 1;
 				in_single = !in_single;
 				i++;
 				continue;
 			}
 			if (!in_single && line[i] == '"') {
+				if (!in_double && j == 0)
+					started_in_double = 1;
+				if (brace_depth > 0 && j < (int)sizeof(tokbuf) - 1)
+					tokbuf[j++] = '\x05';
 				in_double = !in_double;
 				i++;
 				continue;
 			}
-			if (!in_single && !in_double &&
-			    (line[i] == ' ' || line[i] == '\t')) {
-				break;
+			if (!in_single && !in_double) {
+				if (brace_depth == 0 && line[i] == '\\' && line[i + 1] != '\0' && line[i + 1] != '\n') {
+					if (j == 0)
+						unquoted_start = 0;
+					if (j > 0 && tokbuf[j - 1] == '=' && line[i + 1] == '~')
+						eq_tilde_escaped = 1;
+					i++;
+					if (j < (int)sizeof(tokbuf) - 1)
+						tokbuf[j++] = line[i];
+					i++;
+					continue;
+				}
+				if (line[i] == '$' && line[i + 1] == '{') {
+					brace_depth++;
+					if (j < (int)sizeof(tokbuf) - 2) {
+						tokbuf[j++] = line[i];
+						tokbuf[j++] = line[i + 1];
+					}
+					i += 2;
+					continue;
+				}
+				if (brace_depth > 0 && line[i] == '}') {
+					brace_depth--;
+					if (j < (int)sizeof(tokbuf) - 1)
+						tokbuf[j++] = line[i];
+					i++;
+					continue;
+				}
+				if (line[i] == '$' && line[i + 1] == '(') {
+					paren_depth++;
+					if (j < (int)sizeof(tokbuf) - 2) {
+						tokbuf[j++] = line[i];
+						tokbuf[j++] = line[i + 1];
+					}
+					i += 2;
+					continue;
+				}
+				if (paren_depth > 0 && line[i] == ')') {
+					paren_depth--;
+					if (j < (int)sizeof(tokbuf) - 1)
+						tokbuf[j++] = line[i];
+					i++;
+					continue;
+				}
+				if (brace_depth == 0 && paren_depth == 0 &&
+				    (line[i] == ' ' || line[i] == '\t')) {
+					break;
+				}
+			} else if (in_double && !in_single) {
+				if (line[i] == '$' && line[i + 1] == '{') {
+					brace_depth++;
+				} else if (brace_depth > 0 && line[i] == '}') {
+					brace_depth--;
+				}
 			}
 			if (j < (int)sizeof(tokbuf) - 1) {
+				if (j == 0 && !in_single && !in_double)
+					unquoted_start = 1;
 				tokbuf[j++] = line[i];
 			}
 			i++;
@@ -561,12 +634,78 @@ filson_split_line(char *line)
 			continue;
 		}
 		tokbuf[j] = '\0';
-		token_copy = malloc(j + 1);
+		{
+			int eqpos;
+			char *tilde_exp;
+
+			eqpos = -1;
+			{
+				int k;
+				for (k = 0; k < j; k++) {
+					if (tokbuf[k] == '=') {
+						eqpos = k;
+						break;
+					}
+				}
+			}
+			if (eqpos >= 0 && tokbuf[eqpos + 1] == '~' && !eq_tilde_escaped) {
+				tilde_exp = filson_tilde_expand(tokbuf + eqpos + 1);
+				if (tilde_exp != NULL) {
+					int tlen = strlen(tilde_exp);
+					token_copy = malloc(eqpos + 1 + tlen + 1);
+					if (!token_copy) {
+						free(tilde_exp);
+						fprintf(stderr, "filson: allocation error\n");
+						exit(EXIT_FAILURE);
+					}
+					memcpy(token_copy, tokbuf, eqpos + 1);
+					memcpy(token_copy + eqpos + 1, tilde_exp, tlen + 1);
+					free(tilde_exp);
+					tokens[position] = token_copy;
+					position++;
+					if (position >= bufsize) {
+						bufsize += FILSON_TOK_BUFSIZE;
+						tokens = realloc(tokens, bufsize * sizeof(char *));
+						if (!tokens) {
+							fprintf(stderr, "filson: allocation error\n");
+							exit(EXIT_FAILURE);
+						}
+					}
+					continue;
+				}
+			}
+		}
+		if (unquoted_start && tokbuf[0] == '~') {
+			char *tilde_exp = filson_tilde_expand(tokbuf);
+			if (tilde_exp != NULL) {
+				token_copy = tilde_exp;
+				tokens[position] = token_copy;
+				position++;
+				if (position >= bufsize) {
+					bufsize += FILSON_TOK_BUFSIZE;
+					tokens = realloc(tokens, bufsize * sizeof(char *));
+					if (!tokens) {
+						fprintf(stderr, "filson: allocation error\n");
+						exit(EXIT_FAILURE);
+					}
+				}
+				continue;
+			}
+		}
+		token_copy = malloc(j + 1 + ((started_in_single || started_in_double) ? 1 : 0));
 		if (!token_copy) {
 			fprintf(stderr, "filson: allocation error\n");
 			exit(EXIT_FAILURE);
 		}
-		memcpy(token_copy, tokbuf, j + 1);
+		if (started_in_single) {
+			token_copy[0] = '\x01';
+			memcpy(token_copy + 1, tokbuf, j + 1);
+		} else if (started_in_double) {
+			token_copy[0] = '\x02';
+			memcpy(token_copy + 1, tokbuf, j + 1);
+		} else {
+			memcpy(token_copy, tokbuf, j + 1);
+		}
 		tokens[position] = token_copy;
 		position++;
 		if (position >= bufsize) {
@@ -698,7 +837,7 @@ filson_prepare_heredoc(const char *line)
 	return new_line;
 }
 
-static int
+int
 filson_funcdef_parse(const char *line, char *name_out, int name_max,
     char **body_out, int *needs_more)
 {
@@ -793,6 +932,72 @@ filson_funcdef_parse(const char *line, char *name_out, int name_max,
 	(*body_out)[body_len] = '\0';
 	*needs_more = 0;
 	return 1;
+}
+
+int
+filson_needs_continuation(const char *buf)
+{
+	int in_single;
+	int in_double;
+	int loop_depth;
+	int if_depth;
+	int case_depth;
+	const char *p;
+
+	in_single = 0;
+	in_double = 0;
+	loop_depth = 0;
+	if_depth = 0;
+	case_depth = 0;
+	p = buf;
+	while (*p != '\0') {
+		if (!in_double && *p == '\'') {
+			in_single = !in_single;
+			p++;
+			continue;
+		}
+		if (!in_single && *p == '"') {
+			in_double = !in_double;
+			p++;
+			continue;
+		}
+		if (in_single || in_double) {
+			p++;
+			continue;
+		}
+		if (p == buf || isspace((unsigned char)p[-1]) || p[-1] == ';' ||
+		    p[-1] == '\n') {
+			if (strncmp(p, "for", 3) == 0 &&
+			    (isspace((unsigned char)p[3]) || p[3] == '\0')) {
+				loop_depth++;
+			} else if (strncmp(p, "while", 5) == 0 &&
+			    (isspace((unsigned char)p[5]) || p[5] == '\0')) {
+				loop_depth++;
+			} else if (strncmp(p, "until", 5) == 0 &&
+			    (isspace((unsigned char)p[5]) || p[5] == '\0')) {
+				loop_depth++;
+			} else if (strncmp(p, "if", 2) == 0 &&
+			    (isspace((unsigned char)p[2]) || p[2] == '\0')) {
+				if_depth++;
+			} else if (strncmp(p, "case", 4) == 0 &&
+			    (isspace((unsigned char)p[4]) || p[4] == '\0')) {
+				case_depth++;
+			} else if (strncmp(p, "done", 4) == 0 &&
+			    (p[4] == '\0' || isspace((unsigned char)p[4]) || p[4] == ';')) {
+				if (loop_depth > 0) loop_depth--;
+			} else if (strncmp(p, "fi", 2) == 0 &&
+			    (p[2] == '\0' || isspace((unsigned char)p[2]) || p[2] == ';')) {
+				if (if_depth > 0) if_depth--;
+			} else if (strncmp(p, "esac", 4) == 0 &&
+			    (p[4] == '\0' || isspace((unsigned char)p[4]) || p[4] == ';')) {
+				if (case_depth > 0) case_depth--;
+			}
+		}
+		p++;
+	}
+	if (in_single || in_double) return 1;
+	if (loop_depth > 0 || if_depth > 0 || case_depth > 0) return 1;
+	return 0;
 }
 
 int
@@ -915,6 +1120,56 @@ filson_loop(void)
 			free(line);
 			continue;
 		}
+		if (filson_needs_continuation(resolved)) {
+			char *accum;
+			char *more;
+			char *tmp;
+			int accum_len;
+			int bufsize;
+
+			bufsize = strlen(resolved) + 4096;
+			accum = malloc(bufsize);
+			if (accum != NULL) {
+				accum_len = strlen(resolved);
+				strcpy(accum, resolved);
+				while (filson_needs_continuation(accum)) {
+					if (isatty(STDIN_FILENO)) {
+						write(STDOUT_FILENO, "> ", 2);
+					}
+					more = filson_read_line();
+					if (more == NULL) break;
+					if (accum_len + (int)strlen(more) + 4 > bufsize) {
+						bufsize = accum_len + strlen(more) + 4096;
+						tmp = realloc(accum, bufsize);
+						if (tmp == NULL) {
+							free(more);
+							break;
+						}
+						accum = tmp;
+					}
+					accum[accum_len++] = '\n';
+					memcpy(accum + accum_len, more, strlen(more));
+					accum_len += strlen(more);
+					accum[accum_len] = '\0';
+					free(more);
+				}
+				free(resolved);
+				free(line);
+				hd_line = filson_prepare_heredoc(accum);
+				if (hd_line != NULL) {
+					status = filson_execute_and_chain(hd_line);
+					free(hd_line);
+					if (filson_heredoc_tmppath[0] != '\0') {
+						unlink(filson_heredoc_tmppath);
+						filson_heredoc_tmppath[0] = '\0';
+					}
+				} else {
+					status = filson_execute_and_chain(accum);
+				}
+				free(accum);
+				continue;
+			}
+		}
 		hd_line = filson_prepare_heredoc(resolved);
 		if (hd_line != NULL) {
 			status = filson_execute_and_chain(hd_line);
@@ -936,6 +1191,9 @@ filson_loop(void)
 		if (filson_exit_called) {
 			return filson_exit_code == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 		}
+	}
+	if (!isatty(STDIN_FILENO)) {
+		return filson_last_cmd_success ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
 	return EXIT_SUCCESS;
 }

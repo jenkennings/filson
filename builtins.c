@@ -120,6 +120,41 @@ filson_exit(char **args)
 int
 filson_set(char **args)
 {
+	int i;
+	int count;
+	extern int filson_noglob;
+
+	if (args[1] != NULL && args[1][0] == '-' && args[1][1] != '\0' && args[1][1] != '-') {
+		for (i = 1; args[i] != NULL && args[i][0] == '-' && args[i][1] != '\0'; i++) {
+			const char *flags = args[i] + 1;
+			while (*flags) {
+				if (*flags == 'f') filson_noglob = 1;
+				flags++;
+			}
+		}
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	if (args[1] != NULL && args[1][0] == '+' && args[1][1] != '\0') {
+		for (i = 1; args[i] != NULL && args[i][0] == '+'; i++) {
+			const char *flags = args[i] + 1;
+			while (*flags) {
+				if (*flags == 'f') filson_noglob = 0;
+				flags++;
+			}
+		}
+		filson_last_cmd_success = 1;
+		return 1;
+	}
+	if (args[1] != NULL && strcmp(args[1], "--") == 0) {
+		count = 0;
+		for (i = 2; args[i] != NULL; i++) {
+			count++;
+		}
+		filson_set_posparams(&args[2], count);
+		filson_last_cmd_success = 1;
+		return 1;
+	}
 	if (args[1] == NULL || args[2] == NULL) {
 		fprintf(stderr, "filson: expected arguments to \"set\" <var> <value>\n");
 		filson_last_cmd_success = 0;
@@ -142,12 +177,29 @@ filson_set(char **args)
 int
 filson_echo(char **args)
 {
-	int i, first;
+	int i;
+	int eflag;
+	int nflag;
+	int first;
 	char *expanded;
 	char buf[8192];
 	int buf_len;
+	const char *str;
 
+	eflag = 0;
+	nflag = 0;
 	i = 1;
+	while (args[i] != NULL && args[i][0] == '-') {
+		if (strcmp(args[i], "-e") == 0) {
+			eflag = 1;
+			i++;
+		} else if (strcmp(args[i], "-n") == 0) {
+			nflag = 1;
+			i++;
+		} else {
+			break;
+		}
+	}
 	first = 1;
 	buf_len = 0;
 	while (args[i] != NULL) {
@@ -156,16 +208,81 @@ filson_echo(char **args)
 		}
 		first = 0;
 		expanded = filson_expand_string_variables(args[i]);
-		const char *str = expanded;
-		while (*str && buf_len < (int)sizeof(buf) - 1) {
-			buf[buf_len++] = *str++;
+		str = expanded;
+		if (eflag) {
+			while (*str && buf_len < (int)sizeof(buf) - 2) {
+				if (*str == '\\' && *(str + 1) != '\0') {
+					str++;
+					switch (*str) {
+					case 'a':
+						buf[buf_len++] = '\a';
+						break;
+					case 'b':
+						buf[buf_len++] = '\b';
+						break;
+					case 'c':
+						if (expanded != args[i])
+							free(expanded);
+						write(1, buf, buf_len);
+						filson_last_cmd_success = 1;
+						return 1;
+					case 'e':
+						buf[buf_len++] = '\033';
+						break;
+					case 'f':
+						buf[buf_len++] = '\f';
+						break;
+					case 'n':
+						buf[buf_len++] = '\n';
+						break;
+					case 'r':
+						buf[buf_len++] = '\r';
+						break;
+					case 't':
+						buf[buf_len++] = '\t';
+						break;
+					case 'v':
+						buf[buf_len++] = '\v';
+						break;
+					case '\\':
+						buf[buf_len++] = '\\';
+						break;
+					case '0': {
+						int octal_val;
+						int octal_len;
+						octal_val = 0;
+						octal_len = 0;
+						str++;
+						while (octal_len < 3 && *str >= '0' && *str <= '7') {
+							octal_val = octal_val * 8 + (*str - '0');
+							str++;
+							octal_len++;
+						}
+						buf[buf_len++] = (char)octal_val;
+						str--;
+						break;
+					}
+					default:
+						buf[buf_len++] = '\\';
+						buf[buf_len++] = *str;
+						break;
+					}
+					str++;
+				} else {
+					buf[buf_len++] = *str++;
+				}
+			}
+		} else {
+			while (*str && buf_len < (int)sizeof(buf) - 1) {
+				buf[buf_len++] = *str++;
+			}
 		}
 		if (expanded != args[i]) {
 			free(expanded);
 		}
 		i++;
 	}
-	if (buf_len < (int)sizeof(buf) - 1) {
+	if (!nflag && buf_len < (int)sizeof(buf) - 1) {
 		buf[buf_len++] = '\n';
 	}
 	write(1, buf, buf_len);
@@ -374,7 +491,7 @@ filson_alias(char **args)
 			if (filson_lookup_alias(args[i]) != NULL) {
 				filson_print_one_alias(args[i]);
 			} else {
-				warnx("alias: %s: not found", args[i]);
+				fprintf(stderr, "alias: %s: not found\n", args[i]);
 				filson_last_cmd_success = 0;
 				return 1;
 			}
@@ -408,6 +525,14 @@ filson_unalias(char **args)
 			return 1;
 		}
 	}
+	filson_last_cmd_success = 1;
+	return 1;
+}
+
+int
+filson_trap(char **args)
+{
+	(void)args;
 	filson_last_cmd_success = 1;
 	return 1;
 }
@@ -682,6 +807,7 @@ filson_source(char **args)
 	char line[4096];
 	int status;
 	int len;
+	int rv;
 
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected filename for source\n");
@@ -697,7 +823,13 @@ filson_source(char **args)
 		return 1;
 	}
 
+	filson_push_source_frame();
+	status = 1;
 	while (fgets(line, sizeof(line), fp) != NULL) {
+		char *accum;
+		int accum_len;
+		int accum_cap;
+
 		len = strlen(line);
 		if (len > 0 && line[len - 1] == '\n') {
 			line[len - 1] = '\0';
@@ -705,14 +837,52 @@ filson_source(char **args)
 		if (line[0] == '\0' || line[0] == '#') {
 			continue;
 		}
-		status = filson_execute_and_chain(line);
+		accum_cap = strlen(line) + 4096;
+		accum = malloc(accum_cap);
+		if (accum == NULL) {
+			break;
+		}
+		accum_len = strlen(line);
+		memcpy(accum, line, accum_len + 1);
+		while (filson_needs_continuation(accum)) {
+			if (fgets(line, sizeof(line), fp) == NULL)
+				break;
+			len = strlen(line);
+			if (len > 0 && line[len - 1] == '\n')
+				line[len - 1] = '\0';
+			if (accum_len + (int)strlen(line) + 4 > accum_cap) {
+				char *tmp;
+				accum_cap = accum_len + strlen(line) + 4096;
+				tmp = realloc(accum, accum_cap);
+				if (tmp == NULL)
+					break;
+				accum = tmp;
+			}
+			accum[accum_len++] = '\n';
+			memcpy(accum + accum_len, line, strlen(line));
+			accum_len += strlen(line);
+			accum[accum_len] = '\0';
+		}
+		status = filson_execute_and_chain(accum);
+		free(accum);
+		rv = filson_consume_return_value();
+		if (rv >= 0) {
+			fclose(fp);
+			filson_pop_source_frame();
+			{
+				extern int filson_last_exit_status;
+				filson_last_exit_status = rv;
+				filson_last_cmd_success = (rv == 0) ? 1 : 0;
+			}
+			return 1;
+		}
 		if (status == 0) {
 			break;
 		}
 	}
+	filson_pop_source_frame();
 
 	fclose(fp);
-	filson_last_cmd_success = 1;
 	return 1;
 }
 

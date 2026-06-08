@@ -11,7 +11,7 @@
  * Returns 1 if the string contains *, ?, [, or ~, 0 otherwise.
  */
 static int
-filson_has_glob_chars(const char *str)
+filson_has_glob_chars_impl(const char *str)
 {
 	int i;
 
@@ -29,17 +29,24 @@ filson_has_glob_chars(const char *str)
 	return 0;
 }
 
-/**
- * Expand a single glob pattern into matching files.
- * Returns an array of matched files, or NULL if no matches.
- * Caller must free the result with globfree().
- */
+int
+filson_has_glob_chars(const char *str)
+{
+	return filson_has_glob_chars_impl(str);
+}
+
 static int
-filson_glob_expand(const char *pattern, glob_t *pglob)
+filson_glob_expand_impl(const char *pattern, glob_t *pglob)
 {
 	int flags = GLOB_NOCHECK;
 
 	return glob(pattern, flags, NULL, pglob);
+}
+
+int
+filson_glob_expand(const char *pattern, glob_t *pglob)
+{
+	return filson_glob_expand_impl(pattern, pglob);
 }
 
 char **
@@ -55,7 +62,7 @@ filson_expand_globs(char **args)
 	}
 	has_globs = 0;
 	for (i = 0; args[i] != NULL; i++) {
-		if (filson_has_glob_chars(args[i])) {
+		if (filson_has_glob_chars_impl(args[i])) {
 			has_globs = 1;
 			break;
 		}
@@ -71,8 +78,8 @@ filson_expand_globs(char **args)
 		return args;
 	}
 	for (i = 0; args[i] != NULL; i++) {
-		if (filson_has_glob_chars(args[i])) {
-			if (filson_glob_expand(args[i], &pglob) == 0 && pglob.gl_pathc > 0) {
+		if (filson_has_glob_chars_impl(args[i])) {
+			if (filson_glob_expand_impl(args[i], &pglob) == 0 && pglob.gl_pathc > 0) {
 				for (j = 0; j < (int)pglob.gl_pathc; j++) {
 					if (position >= bufsize - 1) {
 						bufsize += FILSON_GLOB_BUFSIZE;
