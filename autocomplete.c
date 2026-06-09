@@ -318,48 +318,47 @@ filson_collect_completions(const char *token, int command_pos,
 	}
 }
 
+static void
+filson_hac_display_matches(struct filson_match_list *matches, const char *buf,
+    void (*refresh_line)(const char *))
+{
+	int i;
+	printf("\n");
+	for (i = 0; i < matches->count; i++) {
+		filson_print_safe(matches->items[i]);
+		if (i + 1 < matches->count) printf("  ");
+	}
+	printf("\n");
+	refresh_line(buf);
+	filson_free_matches(matches);
+}
+
 void
 filson_handle_autocomplete(char **buffer, int *bufsize, int *position,
 	const char **builtins, int builtin_count, void (*refresh_line)(const char *))
 {
-	int token_start;
-	int token_end;
-	int command_pos;
-	int common_len;
-	int i;
-	char token[4096];
-	char partial[4096];
+	int token_start, token_end, command_pos, common_len;
+	char token[4096], partial[4096];
 	struct filson_match_list matches;
 
-	matches.items = NULL;
-	matches.count = 0;
-	matches.cap = 0;
-	token_end = *position;
-	token_start = token_end;
+	matches.items = NULL; matches.count = matches.cap = 0;
+	token_end = token_start = *position;
 	while (token_start > 0 && (*buffer)[token_start - 1] != ' ' &&
-		(*buffer)[token_start - 1] != '\t') {
+		(*buffer)[token_start - 1] != '\t')
 		token_start--;
-	}
-	if (token_end - token_start >= (int)sizeof(token)) {
-		return;
-	}
+	if (token_end - token_start >= (int)sizeof(token)) return;
 	memcpy(token, *buffer + token_start, (size_t)(token_end - token_start));
 	token[token_end - token_start] = '\0';
 	command_pos = token_start == 0;
 	filson_collect_completions(token, command_pos, builtins, builtin_count, &matches);
 	filson_sort_matches(&matches);
 	if (matches.count == 0) {
-		printf("\a");
-		fflush(stdout);
-		filson_free_matches(&matches);
-		return;
+		printf("\a"); fflush(stdout); filson_free_matches(&matches); return;
 	}
 	if (matches.count == 1) {
 		filson_replace_span(buffer, bufsize, position, token_start,
 			token_end, matches.items[0]);
-		refresh_line(*buffer);
-		filson_free_matches(&matches);
-		return;
+		refresh_line(*buffer); filson_free_matches(&matches); return;
 	}
 	common_len = filson_common_prefix_len(&matches);
 	if (common_len > token_end - token_start && common_len < (int)sizeof(partial)) {
@@ -367,18 +366,7 @@ filson_handle_autocomplete(char **buffer, int *bufsize, int *position,
 		partial[common_len] = '\0';
 		filson_replace_span(buffer, bufsize, position, token_start,
 			token_end, partial);
-		refresh_line(*buffer);
-		filson_free_matches(&matches);
-		return;
+		refresh_line(*buffer); filson_free_matches(&matches); return;
 	}
-	printf("\n");
-	for (i = 0; i < matches.count; i++) {
-		filson_print_safe(matches.items[i]);
-		if (i + 1 < matches.count) {
-			printf("  ");
-		}
-	}
-	printf("\n");
-	refresh_line(*buffer);
-	filson_free_matches(&matches);
+	filson_hac_display_matches(&matches, *buffer, refresh_line);
 }
