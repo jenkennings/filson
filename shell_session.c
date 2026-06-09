@@ -759,101 +759,83 @@ filson_prepare_heredoc(const char *line)
 	return new_line;
 }
 
-int
-filson_funcdef_parse(const char *line, char *name_out, int name_max,
-    char **body_out, int *needs_more)
+static const char *
+filson_fp_scan_name(const char *line, char *name_out, int name_max)
 {
-	const char *p;
-	const char *after_name;
-	const char *q;
-	const char *body_start;
-	const char *body_end;
-	const char *brace_close;
+	const char *p = line;
 	int name_len;
-	int depth;
-	int body_len;
 
-	p = line;
-	while (*p == ' ' || *p == '\t') {
-		p++;
-	}
-	if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_')) {
-		return 0;
-	}
+	while (*p == ' ' || *p == '\t') p++;
+	if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || *p == '_'))
+		return NULL;
 	name_len = 0;
 	while ((p[name_len] >= 'a' && p[name_len] <= 'z') ||
 	       (p[name_len] >= 'A' && p[name_len] <= 'Z') ||
 	       (p[name_len] >= '0' && p[name_len] <= '9') ||
-	       p[name_len] == '_') {
+	       p[name_len] == '_')
 		name_len++;
-	}
-	if (name_len == 0 || name_len >= name_max) {
-		return 0;
-	}
-	after_name = p + name_len;
-	while (*after_name == ' ' || *after_name == '\t') {
-		after_name++;
-	}
-	if (*after_name != '(') {
-		return 0;
-	}
-	after_name++;
-	while (*after_name == ' ' || *after_name == '\t') {
-		after_name++;
-	}
-	if (*after_name != ')') {
-		return 0;
-	}
-	after_name++;
-	while (*after_name == ' ' || *after_name == '\t') {
-		after_name++;
-	}
-	if (*after_name != '{') {
-		return 0;
-	}
+	if (name_len == 0 || name_len >= name_max) return NULL;
 	memcpy(name_out, p, name_len);
 	name_out[name_len] = '\0';
-	q = after_name;
-	depth = 0;
+	return p + name_len;
+}
+
+static const char *
+filson_fp_scan_parens(const char *p)
+{
+	while (*p == ' ' || *p == '\t') p++;
+	if (*p != '(') return NULL;
+	p++;
+	while (*p == ' ' || *p == '\t') p++;
+	if (*p != ')') return NULL;
+	p++;
+	while (*p == ' ' || *p == '\t') p++;
+	if (*p != '{') return NULL;
+	return p;
+}
+
+static int
+filson_fp_extract_body(const char *brace_start, char **body_out, int *needs_more)
+{
+	const char *q = brace_start;
+	const char *body_start, *body_end, *brace_close;
+	int depth = 0, body_len;
+
 	brace_close = NULL;
 	while (*q != '\0') {
-		if (*q == '{') {
-			depth++;
-		} else if (*q == '}') {
-			depth--;
-			if (depth == 0) {
-				brace_close = q;
-				break;
-			}
-		}
+		if (*q == '{') depth++;
+		else if (*q == '}') { depth--; if (depth == 0) { brace_close = q; break; } }
 		q++;
 	}
-	if (brace_close == NULL) {
-		*needs_more = 1;
-		*body_out = NULL;
-		return 1;
-	}
-	body_start = after_name + 1;
+	if (brace_close == NULL) { *needs_more = 1; *body_out = NULL; return 1; }
+	body_start = brace_start + 1;
 	body_end = brace_close;
-	while (body_start < body_end &&
-	       (*body_start == ' ' || *body_start == '\t' || *body_start == '\n' ||
-	       *body_start == ';')) {
+	while (body_start < body_end && (*body_start == ' ' || *body_start == '\t' ||
+	    *body_start == '\n' || *body_start == ';'))
 		body_start++;
-	}
-	while (body_end > body_start &&
-	       (*(body_end - 1) == ' ' || *(body_end - 1) == '\t' ||
-	       *(body_end - 1) == ';' || *(body_end - 1) == '\n')) {
+	while (body_end > body_start && (*(body_end - 1) == ' ' || *(body_end - 1) == '\t' ||
+	    *(body_end - 1) == ';' || *(body_end - 1) == '\n'))
 		body_end--;
-	}
 	body_len = body_end - body_start;
 	*body_out = malloc(body_len + 1);
-	if (*body_out == NULL) {
-		return 0;
-	}
+	if (*body_out == NULL) return 0;
 	memcpy(*body_out, body_start, body_len);
 	(*body_out)[body_len] = '\0';
 	*needs_more = 0;
 	return 1;
+}
+
+int
+filson_funcdef_parse(const char *line, char *name_out, int name_max,
+    char **body_out, int *needs_more)
+{
+	const char *after_name, *brace;
+
+	after_name = filson_fp_scan_name(line, name_out, name_max);
+	if (after_name == NULL) return 0;
+	brace = filson_fp_scan_parens(after_name);
+	if (brace == NULL) return 0;
+	return filson_fp_extract_body(brace, body_out, needs_more);
 }
 
 static void
