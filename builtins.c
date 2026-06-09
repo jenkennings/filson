@@ -95,7 +95,7 @@ filson_help(char **args)
 	}
 	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Use the man command for information on other programs.\n");
 	if (buf_len > 0) {
-		write(1, buf, buf_len);
+		(void)write(1, buf, buf_len);
 	}
 	return 1;
 }
@@ -234,7 +234,7 @@ filson_echo(char **args)
 				if (*str == '\\' && *(str + 1) != '\0') {
 					int res = filson_echo_escape(&str, buf, buf_len, (int)sizeof(buf) - 1);
 					if (res < 0) {
-						write(1, buf, buf_len);
+						(void)write(1, buf, buf_len);
 						filson_last_cmd_success = 1;
 						return 1;
 					}
@@ -249,7 +249,7 @@ filson_echo(char **args)
 		i++;
 	}
 	if (!nflag && buf_len < (int)sizeof(buf) - 1) buf[buf_len++] = '\n';
-	write(1, buf, buf_len);
+	(void)write(1, buf, buf_len);
 	filson_last_cmd_success = 1;
 	return 1;
 }
@@ -291,7 +291,7 @@ filson_clear(char **args)
 {
 	(void)args;
 	printf("\033[2J\033[H");
-	fflush(stdout);
+	(void)fflush(stdout);
 	filson_last_cmd_success = 1;
 	return 1;
 }
@@ -705,7 +705,7 @@ filson_read(char **args)
 	int use_prompt = 0, len;
 
 	if (!filson_read_parse_args(args, &varname, &prompt, &use_prompt)) return 1;
-	if (use_prompt) { fputs(prompt, stdout); fflush(stdout); }
+	if (use_prompt) { (void)fputs(prompt, stdout); fflush(stdout); }
 	result = fgets(line, sizeof(line), stdin);
 	if (result == NULL) { filson_last_cmd_success = 0; return 1; }
 	len = strlen(line);
@@ -803,7 +803,7 @@ filson_source(char **args)
 		free(accum);
 		rv = filson_consume_return_value();
 		if (rv >= 0) {
-			fclose(fp);
+			(void)fclose(fp);
 			filson_pop_source_frame();
 			{
 				extern int filson_last_exit_status;
@@ -815,7 +815,7 @@ filson_source(char **args)
 		if (status == 0) break;
 	}
 	filson_pop_source_frame();
-	fclose(fp);
+	(void)fclose(fp);
 	return 1;
 }
 

@@ -107,7 +107,7 @@ static void
 filson_refresh_line(const char *buffer)
 {
 	printf("\r%s%s\033[K", FILSON_PROMPT, buffer);
-	fflush(stdout);
+	(void)fflush(stdout);
 }
 
 static void
@@ -122,7 +122,7 @@ filson_refresh_line_cursor(const char *buffer, int cursor)
 	if (move_left > 0) {
 		printf("\033[%dD", move_left);
 	}
-	fflush(stdout);
+	(void)fflush(stdout);
 }
 
 static void
@@ -674,22 +674,22 @@ filson_phd_inline(const char *line, int hd_start, int hd_end, const char *delim,
 			seg[llen] = '\0';
 			expanded_line = filson_expand_string_variables(seg);
 			n = strlen(expanded_line);
-			write(fd, expanded_line, n);
-			write(fd, "\n", 1);
+			(void)write(fd, expanded_line, n);
+			(void)write(fd, "\n", 1);
 			if (expanded_line != seg) free(expanded_line);
 			free(seg);
 		}
 		if (*lend == '\0') break;
 		p = lend + 1;
 	}
-	close(fd);
+	(void)close(fd);
 	{
 		int pfx = hd_start;
 		int tlen = strlen(filson_heredoc_tmppath);
 		int sfxlen = after_hdoc ? (int)strlen(after_hdoc) : 0;
 		new_line = malloc(pfx + 2 + tlen + sfxlen + 2);
 		if (new_line == NULL) {
-			unlink(filson_heredoc_tmppath);
+			(void)unlink(filson_heredoc_tmppath);
 			filson_heredoc_tmppath[0] = '\0';
 			return NULL;
 		}
@@ -709,22 +709,22 @@ filson_phd_interactive(const char *line, int hd_start, int hd_end,
 	int n;
 
 	while (1) {
-		if (interactive) write(STDOUT_FILENO, "heredoc> ", 9);
+		if (interactive) (void)write(STDOUT_FILENO, "heredoc> ", 9);
 		body_line = filson_read_line();
 		if (body_line == NULL) break;
 		if (strcmp(body_line, delim) == 0) { free(body_line); break; }
 		expanded_line = filson_expand_string_variables(body_line);
 		n = strlen(expanded_line);
-		write(fd, expanded_line, n);
-		write(fd, "\n", 1);
+		(void)write(fd, expanded_line, n);
+		(void)write(fd, "\n", 1);
 		if (expanded_line != body_line) free(expanded_line);
 		free(body_line);
 	}
-	close(fd);
+	(void)close(fd);
 	new_line = malloc(hd_start + strlen(filson_heredoc_tmppath) +
 	    (strlen(line) - hd_end) + 4);
 	if (new_line == NULL) {
-		unlink(filson_heredoc_tmppath);
+		(void)unlink(filson_heredoc_tmppath);
 		filson_heredoc_tmppath[0] = '\0';
 		return NULL;
 	}
@@ -893,7 +893,7 @@ filson_loop_funcdef_accum(char *resolved, char *func_name, char **func_body_p)
 	pp = resolved;
 	while (*pp != '\0') { if (*pp == '{') depth++; else if (*pp == '}') depth--; pp++; }
 	while (depth > 0) {
-		if (isatty(STDIN_FILENO)) write(STDOUT_FILENO, "> ", 2);
+		if (isatty(STDIN_FILENO)) (void)write(STDOUT_FILENO, "> ", 2);
 		more = filson_read_line();
 		if (more == NULL) break;
 		if (accum_len + (int)strlen(more) + 4 > bufsize) {
@@ -926,7 +926,7 @@ filson_loop_continuation(char *resolved, char *line, int *status_p)
 	accum_len = strlen(resolved);
 	strcpy(accum, resolved);
 	while (filson_needs_continuation(accum)) {
-		if (isatty(STDIN_FILENO)) write(STDOUT_FILENO, "> ", 2);
+		if (isatty(STDIN_FILENO)) (void)write(STDOUT_FILENO, "> ", 2);
 		more = filson_read_line();
 		if (more == NULL) break;
 		if (accum_len + (int)strlen(more) + 4 > bufsize) {
@@ -947,7 +947,7 @@ filson_loop_continuation(char *resolved, char *line, int *status_p)
 		*status_p = filson_execute_and_chain(hd_line);
 		free(hd_line);
 		if (filson_heredoc_tmppath[0] != '\0') {
-			unlink(filson_heredoc_tmppath);
+			(void)unlink(filson_heredoc_tmppath);
 			filson_heredoc_tmppath[0] = '\0';
 		}
 	} else {
@@ -968,7 +968,7 @@ filson_loop(void)
 	status = 1;
 	do {
 		filson_reap_background_jobs();
-		if (isatty(STDIN_FILENO)) { printf(FILSON_PROMPT); fflush(stdout); }
+		if (isatty(STDIN_FILENO)) { printf(FILSON_PROMPT); (void)fflush(stdout); }
 		line = filson_read_line();
 		if (line == NULL) { if (isatty(STDIN_FILENO)) printf("\n"); break; }
 		{
@@ -999,7 +999,7 @@ filson_loop(void)
 			status = filson_execute_and_chain(hd_line);
 			free(hd_line);
 			if (filson_heredoc_tmppath[0] != '\0') {
-				unlink(filson_heredoc_tmppath);
+				(void)unlink(filson_heredoc_tmppath);
 				filson_heredoc_tmppath[0] = '\0';
 			}
 		} else {

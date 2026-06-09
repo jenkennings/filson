@@ -353,7 +353,7 @@ filson_handle_autocomplete(char **buffer, int *bufsize, int *position,
 	filson_collect_completions(token, command_pos, builtins, builtin_count, &matches);
 	filson_sort_matches(&matches);
 	if (matches.count == 0) {
-		printf("\a"); fflush(stdout); filson_free_matches(&matches); return;
+		printf("\a"); (void)fflush(stdout); filson_free_matches(&matches); return;
 	}
 	if (matches.count == 1) {
 		filson_replace_span(buffer, bufsize, position, token_start,

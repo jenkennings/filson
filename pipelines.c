@@ -78,30 +78,30 @@ filson_run_subcommand(const char *cmd)
 	}
 	pid = fork();
 	if (pid == -1) {
-		close(pipefd[0]);
-		close(pipefd[1]);
+		(void)close(pipefd[0]);
+		(void)close(pipefd[1]);
 		free(cmd_copy);
 		return NULL;
 	}
 	if (pid == 0) {
-		close(pipefd[0]);
-		dup2(pipefd[1], STDOUT_FILENO);
-		close(pipefd[1]);
+		(void)close(pipefd[0]);
+		(void)dup2(pipefd[1], STDOUT_FILENO);
+		(void)close(pipefd[1]);
 		filson_execute_and_chain(cmd_copy);
 		free(cmd_copy);
-		fflush(stdout);
+		(void)fflush(stdout);
 		_exit(filson_last_exit_status & 0xff);
 	}
-	close(pipefd[1]);
+	(void)close(pipefd[1]);
 	fp = fdopen(pipefd[0], "r");
 	if (fp == NULL) {
-		close(pipefd[0]);
+		(void)close(pipefd[0]);
 		waitpid(pid, &status, 0);
 		free(cmd_copy);
 		return NULL;
 	}
 	out = filson_read_command_output(fp);
-	fclose(fp);
+	(void)fclose(fp);
 	waitpid(pid, &status, 0);
 	if (WIFEXITED(status)) {
 		filson_last_exit_status = WEXITSTATUS(status);
@@ -866,32 +866,32 @@ filson_ep_child_setup(char ***argvv, int i, int stage_count, int pipe_count,
 {
 	int fd;
 
-	if (i > 0) dup2(pipes[i - 1][0], 0);
-	if (i < stage_count - 1) dup2(pipes[i][1], 1);
+	if (i > 0) (void)dup2(pipes[i - 1][0], 0);
+	if (i < stage_count - 1) (void)dup2(pipes[i][1], 1);
 	if (infiles[i] != NULL) {
 		fd = open(infiles[i], O_RDONLY);
 		if (fd < 0) { perror("filson"); _exit(EXIT_FAILURE); }
-		dup2(fd, 0); close(fd);
+		(void)dup2(fd, 0); (void)close(fd);
 	}
 	if (outfiles[i] != NULL) {
 		fd = open(outfiles[i], O_WRONLY | O_CREAT |
 		    (out_append[i] ? O_APPEND : O_TRUNC), 0644);
 		if (fd < 0) { perror("filson"); _exit(EXIT_FAILURE); }
-		dup2(fd, 1); close(fd);
+		(void)dup2(fd, 1); (void)close(fd);
 	}
 	if (err_to_out[i]) {
-		dup2(1, 2);
+		(void)dup2(1, 2);
 	} else if (errfiles[i] != NULL) {
 		fd = open(errfiles[i], O_WRONLY | O_CREAT |
 		    (err_append[i] ? O_APPEND : O_TRUNC), 0644);
 		if (fd < 0) { perror("filson"); _exit(EXIT_FAILURE); }
-		dup2(fd, 2); close(fd);
+		(void)dup2(fd, 2); (void)close(fd);
 	}
 	{
 		int j;
 		for (j = 0; j < pipe_count; j++) {
-			close(pipes[j][0]);
-			close(pipes[j][1]);
+			(void)close(pipes[j][0]);
+			(void)close(pipes[j][1]);
 		}
 	}
 	execvp(argvv[i][0], argvv[i]);
@@ -927,11 +927,11 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 		} else if (pids[i] < 0) {
 			perror("filson");
 			filson_last_cmd_success = 0;
-			for (j = 0; j < pipe_count; j++) { close(pipes[j][0]); close(pipes[j][1]); }
+			for (j = 0; j < pipe_count; j++) { (void)close(pipes[j][0]); (void)close(pipes[j][1]); }
 			return 1;
 		}
 	}
-	for (i = 0; i < pipe_count; i++) { close(pipes[i][0]); close(pipes[i][1]); }
+	for (i = 0; i < pipe_count; i++) { (void)close(pipes[i][0]); (void)close(pipes[i][1]); }
 	if (background) {
 		job_id = filson_add_job(pids[stage_count - 1], segment, 0);
 		if (job_id < 0) {
@@ -1434,31 +1434,31 @@ filson_eps_single_redir(char **argvv[], int pos[],
 		saved_in = dup(STDIN_FILENO);
 		fd_in = open(infiles[0], O_RDONLY);
 		if (fd_in < 0) { warn("%s", infiles[0]); redir_ok = 0; }
-		else { dup2(fd_in, STDIN_FILENO); close(fd_in); }
+		else { (void)dup2(fd_in, STDIN_FILENO); (void)close(fd_in); }
 	}
 	if (redir_ok && outfiles[0] != NULL) {
 		saved_out = dup(STDOUT_FILENO);
 		fd_out = open(outfiles[0], O_WRONLY | O_CREAT |
 		    (out_append[0] ? O_APPEND : O_TRUNC), 0644);
 		if (fd_out < 0) { warn("%s", outfiles[0]); redir_ok = 0; }
-		else { dup2(fd_out, STDOUT_FILENO); close(fd_out); }
+		else { (void)dup2(fd_out, STDOUT_FILENO); (void)close(fd_out); }
 	}
 	if (redir_ok && err_to_out[0]) {
 		saved_err = dup(STDERR_FILENO);
-		dup2(STDOUT_FILENO, STDERR_FILENO);
+		(void)dup2(STDOUT_FILENO, STDERR_FILENO);
 	} else if (redir_ok && errfiles[0] != NULL) {
 		saved_err = dup(STDERR_FILENO);
 		fd_err = open(errfiles[0], O_WRONLY | O_CREAT |
 		    (err_append[0] ? O_APPEND : O_TRUNC), 0644);
 		if (fd_err < 0) { warn("%s", errfiles[0]); redir_ok = 0; }
-		else { dup2(fd_err, STDERR_FILENO); close(fd_err); }
+		else { (void)dup2(fd_err, STDERR_FILENO); (void)close(fd_err); }
 	}
 	if (redir_ok)
 		k = filson_execute(argvv[0], pos[0], 0, segment);
 	else { filson_last_cmd_success = 0; k = 1; }
-	if (saved_in >= 0) { dup2(saved_in, STDIN_FILENO); close(saved_in); }
-	if (saved_out >= 0) { dup2(saved_out, STDOUT_FILENO); close(saved_out); }
-	if (saved_err >= 0) { dup2(saved_err, STDERR_FILENO); close(saved_err); }
+	if (saved_in >= 0) { (void)dup2(saved_in, STDIN_FILENO); (void)close(saved_in); }
+	if (saved_out >= 0) { (void)dup2(saved_out, STDOUT_FILENO); (void)close(saved_out); }
+	if (saved_err >= 0) { (void)dup2(saved_err, STDERR_FILENO); (void)close(saved_err); }
 	return k;
 }
 
