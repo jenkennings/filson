@@ -667,72 +667,52 @@ filson_continue(char **args)
 	return 1;
 }
 
-int
-filson_read(char **args)
+static int
+filson_read_parse_args(char **args, char **varname_p, char **prompt_p,
+    int *use_prompt_p)
 {
-	char *varname;
-	char *prompt;
-	char line[4096];
-	char *result;
-	int use_prompt;
-	int len;
-
-	use_prompt = 0;
-	prompt = NULL;
-	varname = NULL;
-
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected variable name for read\n");
-		filson_last_cmd_success = 0;
-		return 1;
+		filson_last_cmd_success = 0; return 0;
 	}
-
 	if (args[1][0] == '-' && args[1][1] == 'p') {
 		if (args[2] == NULL) {
 			fprintf(stderr, "filson: -p requires prompt argument\n");
-			filson_last_cmd_success = 0;
-			return 1;
+			filson_last_cmd_success = 0; return 0;
 		}
-		prompt = args[2];
-		use_prompt = 1;
+		*prompt_p = args[2]; *use_prompt_p = 1;
 		if (args[3] == NULL) {
 			fprintf(stderr, "filson: expected variable name for read\n");
-			filson_last_cmd_success = 0;
-			return 1;
+			filson_last_cmd_success = 0; return 0;
 		}
-		varname = args[3];
+		*varname_p = args[3];
 	} else {
-		varname = args[1];
+		*varname_p = args[1];
 	}
-
-	if (!filson_is_valid_varname(varname)) {
-		fprintf(stderr, "filson: invalid variable name: %s\n", varname);
-		filson_last_cmd_success = 0;
-		return 1;
+	if (!filson_is_valid_varname(*varname_p)) {
+		fprintf(stderr, "filson: invalid variable name: %s\n", *varname_p);
+		filson_last_cmd_success = 0; return 0;
 	}
+	return 1;
+}
 
-	if (use_prompt) {
-		fputs(prompt, stdout);
-		fflush(stdout);
-	}
+int
+filson_read(char **args)
+{
+	char *varname = NULL, *prompt = NULL;
+	char line[4096];
+	char *result;
+	int use_prompt = 0, len;
 
+	if (!filson_read_parse_args(args, &varname, &prompt, &use_prompt)) return 1;
+	if (use_prompt) { fputs(prompt, stdout); fflush(stdout); }
 	result = fgets(line, sizeof(line), stdin);
-	if (result == NULL) {
-		filson_last_cmd_success = 0;
-		return 1;
-	}
-
+	if (result == NULL) { filson_last_cmd_success = 0; return 1; }
 	len = strlen(line);
-	if (len > 0 && line[len - 1] == '\n') {
-		line[len - 1] = '\0';
-	}
-
+	if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
 	if (setenv(varname, line, 1) != 0) {
-		perror("filson");
-		filson_last_cmd_success = 0;
-		return 1;
+		perror("filson"); filson_last_cmd_success = 0; return 1;
 	}
-
 	filson_last_cmd_success = 1;
 	return 1;
 }
@@ -763,70 +743,62 @@ filson_shift(char **args)
 	return 1;
 }
 
+static char *
+filson_source_accum_line(FILE *fp, const char *first_line)
+{
+	char line[4096];
+	char *accum, *tmp;
+	int accum_len, accum_cap;
+	size_t len;
+
+	accum_cap = strlen(first_line) + 4096;
+	accum = malloc(accum_cap);
+	if (accum == NULL) return NULL;
+	accum_len = strlen(first_line);
+	memcpy(accum, first_line, accum_len + 1);
+	while (filson_needs_continuation(accum)) {
+		if (fgets(line, sizeof(line), fp) == NULL) break;
+		len = strlen(line);
+		if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
+		if (accum_len + (int)strlen(line) + 4 > accum_cap) {
+			accum_cap = accum_len + strlen(line) + 4096;
+			tmp = realloc(accum, accum_cap);
+			if (tmp == NULL) break;
+			accum = tmp;
+		}
+		accum[accum_len++] = '\n';
+		memcpy(accum + accum_len, line, strlen(line));
+		accum_len += strlen(line);
+		accum[accum_len] = '\0';
+	}
+	return accum;
+}
+
 int
 filson_source(char **args)
 {
 	char *filename;
 	FILE *fp;
 	char line[4096];
-	int status;
-	int len;
-	int rv;
+	int status, len, rv;
+	char *accum;
 
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected filename for source\n");
 		filson_last_cmd_success = 0;
 		return 1;
 	}
-
 	filename = args[1];
 	fp = fopen(filename, "r");
-	if (fp == NULL) {
-		perror("filson");
-		filson_last_cmd_success = 0;
-		return 1;
-	}
-
+	if (fp == NULL) { perror("filson"); filson_last_cmd_success = 0; return 1; }
 	filson_push_source_frame();
 	status = 1;
 	while (fgets(line, sizeof(line), fp) != NULL) {
-		char *accum;
-		int accum_len;
-		int accum_cap;
-
 		len = strlen(line);
-		if (len > 0 && line[len - 1] == '\n') {
-			line[len - 1] = '\0';
-		}
-		if (line[0] == '\0' || line[0] == '#') {
-			continue;
-		}
-		accum_cap = strlen(line) + 4096;
-		accum = malloc(accum_cap);
-		if (accum == NULL) {
-			break;
-		}
-		accum_len = strlen(line);
-		memcpy(accum, line, accum_len + 1);
-		while (filson_needs_continuation(accum)) {
-			if (fgets(line, sizeof(line), fp) == NULL)
-				break;
-			len = strlen(line);
-			if (len > 0 && line[len - 1] == '\n')
-				line[len - 1] = '\0';
-			if (accum_len + (int)strlen(line) + 4 > accum_cap) {
-				char *tmp;
-				accum_cap = accum_len + strlen(line) + 4096;
-				tmp = realloc(accum, accum_cap);
-				if (tmp == NULL)
-					break;
-				accum = tmp;
-			}
-			accum[accum_len++] = '\n';
-			memcpy(accum + accum_len, line, strlen(line));
-			accum_len += strlen(line);
-			accum[accum_len] = '\0';
-		}
+		if (len > 0 && line[len - 1] == '\n') line[len - 1] = '\0';
+		if (line[0] == '\0' || line[0] == '#') continue;
+		accum = filson_source_accum_line(fp, line);
+		if (accum == NULL) break;
 		status = filson_execute_and_chain(accum);
 		free(accum);
 		rv = filson_consume_return_value();
@@ -840,12 +812,9 @@ filson_source(char **args)
 			}
 			return 1;
 		}
-		if (status == 0) {
-			break;
-		}
+		if (status == 0) break;
 	}
 	filson_pop_source_frame();
-
 	fclose(fp);
 	return 1;
 }
