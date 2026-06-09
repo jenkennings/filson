@@ -1591,6 +1591,13 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 	return k;
 }
 
+static inline int
+filson_iskw(const char *s, int i, const char *k, int n)
+{
+	return strncmp(s + i, k, n) == 0 &&
+	    (s[i + n] == ' ' || s[i + n] == ';' || s[i + n] == '\0');
+}
+
 static int
 prenorm_scan_kw(const char *s, int start, const char *kw)
 {
@@ -1633,16 +1640,14 @@ prenorm_scan_kw(const char *s, int start, const char *kw)
 			if ((a == ' ' || a == ';' || a == '\0') && level == 1)
 				return i;
 		}
-#define ISKW(k, n) (strncmp(s+i, k, n) == 0 && \
-	(s[i+(n)] == ' ' || s[i+(n)] == ';' || s[i+(n)] == '\0'))
-		if (ISKW("if", 2) || ISKW("for", 3) || ISKW("while", 5) || ISKW("until", 5))
+		if (filson_iskw(s, i, "if", 2) || filson_iskw(s, i, "for", 3) ||
+		    filson_iskw(s, i, "while", 5) || filson_iskw(s, i, "until", 5))
 			level++;
-		if (ISKW("fi", 2) || ISKW("done", 4)) {
+		if (filson_iskw(s, i, "fi", 2) || filson_iskw(s, i, "done", 4)) {
 			level--;
 			if (level == 0)
 				return -1;
 		}
-#undef ISKW
 		i++;
 	}
 	return -1;
