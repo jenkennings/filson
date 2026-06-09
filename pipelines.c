@@ -481,6 +481,45 @@ filson_parse_logor(const char *expr, int *pos)
 	return result;
 }
 
+static int
+filson_pa_scan_op(const char *expr, int after_var, char *assign_op_p, int *op_len_p)
+{
+	if (expr[after_var] == '=' && expr[after_var + 1] != '=') {
+		*assign_op_p = '='; *op_len_p = 1; return 1;
+	}
+	if (expr[after_var] == '+' && expr[after_var+1] == '=') {
+		*assign_op_p = '+'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '-' && expr[after_var+1] == '=') {
+		*assign_op_p = '-'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '*' && expr[after_var+1] == '=') {
+		*assign_op_p = '*'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '/' && expr[after_var+1] == '=') {
+		*assign_op_p = '/'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '%' && expr[after_var+1] == '=') {
+		*assign_op_p = '%'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '<' && expr[after_var+1] == '<' && expr[after_var+2] == '=') {
+		*assign_op_p = '<'; *op_len_p = 3; return 1;
+	}
+	if (expr[after_var] == '>' && expr[after_var+1] == '>' && expr[after_var+2] == '=') {
+		*assign_op_p = '>'; *op_len_p = 3; return 1;
+	}
+	if (expr[after_var] == '&' && expr[after_var+1] == '=') {
+		*assign_op_p = '&'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '^' && expr[after_var+1] == '=') {
+		*assign_op_p = '^'; *op_len_p = 2; return 1;
+	}
+	if (expr[after_var] == '|' && expr[after_var+1] == '=') {
+		*assign_op_p = '|'; *op_len_p = 2; return 1;
+	}
+	return 0;
+}
+
 static long
 filson_parse_assign(const char *expr, int *pos)
 {
@@ -492,8 +531,7 @@ filson_parse_assign(const char *expr, int *pos)
 	char val_str[64];
 	int saved_pos;
 
-	while (expr[*pos] == ' ' || expr[*pos] == '\t')
-		(*pos)++;
+	while (expr[*pos] == ' ' || expr[*pos] == '\t') (*pos)++;
 	saved_pos = *pos;
 	var_len = 0;
 	if ((expr[*pos] >= 'a' && expr[*pos] <= 'z') ||
@@ -505,36 +543,11 @@ filson_parse_assign(const char *expr, int *pos)
 		       expr[*pos + var_len] == '_')
 			var_len++;
 	}
-	is_assign = 0;
-	assign_op = 0;
-	op_len = 0;
+	is_assign = 0; assign_op = 0; op_len = 0;
 	if (var_len > 0 && var_len < 256) {
 		after_var = *pos + var_len;
-		while (expr[after_var] == ' ' || expr[after_var] == '\t')
-			after_var++;
-		if (expr[after_var] == '=' && expr[after_var + 1] != '=') {
-			assign_op = '='; op_len = 1; is_assign = 1;
-		} else if (expr[after_var] == '+' && expr[after_var + 1] == '=') {
-			assign_op = '+'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '-' && expr[after_var + 1] == '=') {
-			assign_op = '-'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '*' && expr[after_var + 1] == '=') {
-			assign_op = '*'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '/' && expr[after_var + 1] == '=') {
-			assign_op = '/'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '%' && expr[after_var + 1] == '=') {
-			assign_op = '%'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '<' && expr[after_var + 1] == '<' && expr[after_var + 2] == '=') {
-			assign_op = '<'; op_len = 3; is_assign = 1;
-		} else if (expr[after_var] == '>' && expr[after_var + 1] == '>' && expr[after_var + 2] == '=') {
-			assign_op = '>'; op_len = 3; is_assign = 1;
-		} else if (expr[after_var] == '&' && expr[after_var + 1] == '=') {
-			assign_op = '&'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '^' && expr[after_var + 1] == '=') {
-			assign_op = '^'; op_len = 2; is_assign = 1;
-		} else if (expr[after_var] == '|' && expr[after_var + 1] == '=') {
-			assign_op = '|'; op_len = 2; is_assign = 1;
-		}
+		while (expr[after_var] == ' ' || expr[after_var] == '\t') after_var++;
+		is_assign = filson_pa_scan_op(expr, after_var, &assign_op, &op_len);
 	}
 	if (is_assign) {
 		memcpy(var_name, expr + *pos, var_len);
@@ -988,13 +1001,37 @@ filson_find_loop_do(char **tokens, int start, int end, int *do_pos)
 	return 0;
 }
 
+static char **
+filson_efl_collect_items(char **tokens, int item_start, int do_pos)
+{
+	char **items;
+	int i, item_count;
+
+	items = malloc(sizeof(char *) * 256);
+	if (items == NULL) return NULL;
+	item_count = 0;
+	for (i = item_start; i < do_pos; i++) {
+		if (tokens[i] == NULL || strcmp(tokens[i], ";") == 0) continue;
+		if (item_count >= 255) break;
+		items[item_count] = strdup(tokens[i]);
+		if (items[item_count] == NULL) {
+			while (item_count > 0) free(items[--item_count]);
+			free(items);
+			return NULL;
+		}
+		item_count++;
+	}
+	items[item_count] = NULL;
+	return items;
+}
+
 static int
 filson_execute_for_loop(char **tokens, int start, int end)
 {
 	int do_pos, body_start, body_end;
 	int var_pos, in_pos, item_start;
 	char *var_name;
-	int i, status, item_count;
+	int i, status;
 	char item_buf[256];
 	char **items, **expanded_items;
 	extern int filson_break_flag;
@@ -1021,39 +1058,11 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	item_start = in_pos + 1;
 	body_start = do_pos + 1;
 	body_end = end - 1;
-	while (body_end > body_start && strcmp(tokens[body_end - 1], ";") == 0) {
-		body_end--;
-	}
-	item_count = 0;
-	items = malloc(sizeof(char *) * 256);
-	if (items == NULL) {
-		fprintf(stderr, "filson: allocation error\n");
-		filson_last_cmd_success = 0;
-		return 1;
-	}
-	for (i = item_start; i < do_pos; i++) {
-		if (tokens[i] == NULL || strcmp(tokens[i], ";") == 0) {
-			continue;
-		}
-		if (item_count >= 255) {
-			break;
-		}
-		items[item_count] = strdup(tokens[i]);
-		if (items[item_count] == NULL) {
-			while (item_count > 0) {
-				free(items[--item_count]);
-			}
-			free(items);
-			filson_last_cmd_success = 0;
-			return 1;
-		}
-		item_count++;
-	}
-	items[item_count] = NULL;
+	while (body_end > body_start && strcmp(tokens[body_end - 1], ";") == 0) body_end--;
+	items = filson_efl_collect_items(tokens, item_start, do_pos);
+	if (items == NULL) { filson_last_cmd_success = 0; return 1; }
 	expanded_items = filson_expand_globs(items);
-	if (expanded_items != items) {
-		free(items);
-	}
+	if (expanded_items != items) free(items);
 	status = 1;
 	for (i = 0; expanded_items[i] != NULL; i++) {
 		snprintf(item_buf, sizeof(item_buf), "%s", expanded_items[i]);
@@ -1061,17 +1070,9 @@ filson_execute_for_loop(char **tokens, int start, int end)
 		filson_break_flag = 0;
 		filson_continue_flag = 0;
 		status = filson_execute_parsed_segment(tokens, body_start, body_end);
-		if (filson_break_flag) {
-			filson_break_flag = 0;
-			break;
-		}
-		if (filson_continue_flag) {
-			filson_continue_flag = 0;
-			continue;
-		}
-		if (status == 0) {
-			break;
-		}
+		if (filson_break_flag) { filson_break_flag = 0; break; }
+		if (filson_continue_flag) { filson_continue_flag = 0; continue; }
+		if (status == 0) break;
 	}
 	filson_free_expanded_args(expanded_items);
 	filson_last_cmd_success = 1;
