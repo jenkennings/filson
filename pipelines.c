@@ -733,20 +733,61 @@ filson_expand_command_substitutions(const char *line)
 	return out;
 }
 
+static int
+filson_nso_op(const char *line, int i, char *out, int *j_p)
+{
+	int j = *j_p;
+
+	if (line[i] == '&' && line[i + 1] == '&') {
+		out[j++] = ' '; out[j++] = '&'; out[j++] = '&'; out[j++] = ' ';
+		*j_p = j; return i + 2;
+	}
+	if (line[i] == '|' && line[i + 1] == '|') {
+		out[j++] = ' '; out[j++] = '|'; out[j++] = '|'; out[j++] = ' ';
+		*j_p = j; return i + 2;
+	}
+	if (line[i] == '2' && line[i+1] == '>' && line[i+2] == '&' && line[i+3] == '1') {
+		out[j++] = ' '; out[j++] = '2'; out[j++] = '>'; out[j++] = '&'; out[j++] = '1'; out[j++] = ' ';
+		*j_p = j; return i + 4;
+	}
+	if (line[i] == '2' && line[i+1] == '>' && line[i+2] == '>') {
+		out[j++] = ' '; out[j++] = '2'; out[j++] = '>'; out[j++] = '>'; out[j++] = ' ';
+		*j_p = j; return i + 3;
+	}
+	if (line[i] == '2' && line[i+1] == '>') {
+		out[j++] = ' '; out[j++] = '2'; out[j++] = '>'; out[j++] = ' ';
+		*j_p = j; return i + 2;
+	}
+	if (line[i] == '1' && line[i+1] == '>' && line[i+2] == '>') {
+		out[j++] = ' '; out[j++] = '1'; out[j++] = '>'; out[j++] = '>'; out[j++] = ' ';
+		*j_p = j; return i + 3;
+	}
+	if (line[i] == '1' && line[i+1] == '>') {
+		out[j++] = ' '; out[j++] = '1'; out[j++] = '>'; out[j++] = ' ';
+		*j_p = j; return i + 2;
+	}
+	if (line[i] == '>' && line[i+1] == '>') {
+		out[j++] = ' '; out[j++] = '>'; out[j++] = '>'; out[j++] = ' ';
+		*j_p = j; return i + 2;
+	}
+	if (line[i] == ';' || line[i] == '|' || line[i] == '<' ||
+	    line[i] == '>' || line[i] == '&') {
+		out[j++] = ' '; out[j++] = line[i]; out[j++] = ' ';
+		*j_p = j; return i + 1;
+	}
+	return 0;
+}
+
 char *
 filson_normalize_script_ops(const char *line)
 {
-	int i, j, len, in_single, in_double, brace_depth;
+	int i, j, len, in_single, in_double, brace_depth, new_i;
 	char *out;
 
-	if (line == NULL) {
-		return NULL;
-	}
+	if (line == NULL) return NULL;
 	len = strlen(line);
 	out = malloc((len * 4) + 1);
-	if (out == NULL) {
-		return NULL;
-	}
+	if (out == NULL) return NULL;
 	in_single = 0;
 	in_double = 0;
 	brace_depth = 0;
@@ -764,90 +805,13 @@ filson_normalize_script_ops(const char *line)
 			continue;
 		}
 		if (!in_single && !in_double) {
-			if (line[i] == '{') {
-				brace_depth++;
-			} else if (line[i] == '}') {
-				if (brace_depth > 0) {
-					brace_depth--;
-				}
-			} else if (line[i] == '#' && brace_depth == 0 &&
-			    (i == 0 || line[i - 1] == ' ' || line[i - 1] == '\t' || line[i - 1] == ';')) {
+			if (line[i] == '{') brace_depth++;
+			else if (line[i] == '}' && brace_depth > 0) brace_depth--;
+			else if (line[i] == '#' && brace_depth == 0 &&
+			    (i == 0 || line[i-1] == ' ' || line[i-1] == '\t' || line[i-1] == ';'))
 				break;
-			}
-			if (line[i] == '&' && line[i + 1] == '&') {
-				out[j++] = ' ';
-				out[j++] = '&';
-				out[j++] = '&';
-				out[j++] = ' ';
-				i += 2;
-				continue;
-			}
-			if (line[i] == '|' && line[i + 1] == '|') {
-				out[j++] = ' ';
-				out[j++] = '|';
-				out[j++] = '|';
-				out[j++] = ' ';
-				i += 2;
-				continue;
-			}
-			if (line[i] == '2' && line[i + 1] == '>' && line[i + 2] == '&' && line[i + 3] == '1') {
-				out[j++] = ' ';
-				out[j++] = '2';
-				out[j++] = '>';
-				out[j++] = '&';
-				out[j++] = '1';
-				out[j++] = ' ';
-				i += 4;
-				continue;
-			}
-			if (line[i] == '2' && line[i + 1] == '>' && line[i + 2] == '>') {
-				out[j++] = ' ';
-				out[j++] = '2';
-				out[j++] = '>';
-				out[j++] = '>';
-				out[j++] = ' ';
-				i += 3;
-				continue;
-			}
-			if (line[i] == '2' && line[i + 1] == '>') {
-				out[j++] = ' ';
-				out[j++] = '2';
-				out[j++] = '>';
-				out[j++] = ' ';
-				i += 2;
-				continue;
-			}
-			if (line[i] == '1' && line[i + 1] == '>' && line[i + 2] == '>') {
-				out[j++] = ' ';
-				out[j++] = '1';
-				out[j++] = '>';
-				out[j++] = '>';
-				out[j++] = ' ';
-				i += 3;
-				continue;
-			}
-			if (line[i] == '1' && line[i + 1] == '>') {
-				out[j++] = ' ';
-				out[j++] = '1';
-				out[j++] = '>';
-				out[j++] = ' ';
-				i += 2;
-				continue;
-			}
-			if (line[i] == '>' && line[i + 1] == '>') {
-				out[j++] = ' ';
-				out[j++] = '>';
-				out[j++] = '>';
-				out[j++] = ' ';
-				i += 2;
-				continue;
-			}
-			if (line[i] == ';' || line[i] == '|' || line[i] == '<' || line[i] == '>' || line[i] == '&') {
-				out[j++] = ' ';
-				out[j++] = line[i++];
-				out[j++] = ' ';
-				continue;
-			}
+			new_i = filson_nso_op(line, i, out, &j);
+			if (new_i > 0) { i = new_i; continue; }
 		}
 		out[j++] = line[i++];
 	}
