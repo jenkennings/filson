@@ -243,13 +243,13 @@ filson_expand_one_arg(char *arg, char **out, int *out_ai_p)
 	}
 	if ((unsigned char)ev[0] == 0x03) {
 		char *mp = ev + 1;
-		for (;;) {
+		{ int _iter = 0; while (_iter++ < FILSON_MAX_ARGS) {
 			char *mnext = strchr(mp, '\x1f');
 			int mlen = mnext ? (int)(mnext - mp) : (int)strlen(mp);
 			if (*out_ai_p < FILSON_MAX_ARGS) out[(*out_ai_p)++] = strndup(mp, (size_t)mlen);
 			if (!mnext) break;
 			mp = mnext + 1;
-		}
+		} }
 		if (ev != arg) free(ev);
 		return 1;
 	}

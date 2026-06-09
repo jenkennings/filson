@@ -19,6 +19,8 @@ extern int filson_last_cmd_success;
 #define FILSON_IDLE_TIMEOUT_SECS (45 * 60)
 #define FILSON_TOK_BUFSIZE 64
 #define FILSON_TOK_DELIM " \t\r\n\a"
+#define FILSON_READLINE_MAX_ITER 65536
+#define FILSON_HEREDOC_MAX_LINES 65536
 
 enum filson_keycode {
 	FILSON_KEY_CTRL_A = 1,
@@ -426,7 +428,7 @@ filson_read_line(void)
 	int key, ready, r;
 
 	filson_rls_init(&s, &oldt);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_READLINE_MAX_ITER) {
 		if (s.interactive) {
 			FD_ZERO(&rfds); FD_SET(STDIN_FILENO, &rfds);
 			tv.tv_sec = FILSON_IDLE_TIMEOUT_SECS; tv.tv_usec = 0;
@@ -442,7 +444,8 @@ filson_read_line(void)
 		r = filson_rls_key(&s, key, &oldt);
 		if (r < 0) return NULL;
 		if (r == 0) return s.buf;
-	}
+	} }
+	return NULL;
 }
 
 static void
@@ -708,7 +711,7 @@ filson_phd_interactive(const char *line, int hd_start, int hd_end,
 	int interactive = isatty(STDIN_FILENO);
 	int n;
 
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_HEREDOC_MAX_LINES) {
 		if (interactive) (void)write(STDOUT_FILENO, "heredoc> ", 9);
 		body_line = filson_read_line();
 		if (body_line == NULL) break;
@@ -719,7 +722,7 @@ filson_phd_interactive(const char *line, int hd_start, int hd_end,
 		(void)write(fd, "\n", 1);
 		if (expanded_line != body_line) free(expanded_line);
 		free(body_line);
-	}
+	} }
 	(void)close(fd);
 	new_line = malloc(hd_start + strlen(filson_heredoc_tmppath) +
 	    (strlen(line) - hd_end) + 4);

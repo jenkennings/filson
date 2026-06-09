@@ -13,6 +13,9 @@
 #include "shell_session.h"
 #include "expansion.h"
 
+#define FILSON_EXPR_MAX_ITER 4096
+#define FILSON_LOOP_MAX_ITER 65536
+
 extern int filson_last_cmd_success;
 extern int filson_last_exit_status;
 extern int filson_execute(char **args, int argc, int background, char *segment);
@@ -257,7 +260,7 @@ filson_parse_term(const char *expr, int *pos)
 	long divisor;
 
 	term = filson_parse_factor(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -279,7 +282,7 @@ filson_parse_term(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return term;
 }
 
@@ -289,7 +292,7 @@ filson_parse_addexpr(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_term(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -302,7 +305,7 @@ filson_parse_addexpr(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -312,7 +315,7 @@ filson_parse_shift(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_addexpr(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -325,7 +328,7 @@ filson_parse_shift(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -335,7 +338,7 @@ filson_parse_comparison(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_shift(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -354,7 +357,7 @@ filson_parse_comparison(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -364,7 +367,7 @@ filson_parse_equality(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_comparison(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -377,7 +380,7 @@ filson_parse_equality(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -387,7 +390,7 @@ filson_parse_bitand(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_equality(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -397,7 +400,7 @@ filson_parse_bitand(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -407,7 +410,7 @@ filson_parse_bitxor(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_bitand(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -417,7 +420,7 @@ filson_parse_bitxor(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -427,7 +430,7 @@ filson_parse_bitor(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_bitxor(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -437,7 +440,7 @@ filson_parse_bitor(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -447,7 +450,7 @@ filson_parse_logand(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_bitor(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -457,7 +460,7 @@ filson_parse_logand(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -467,7 +470,7 @@ filson_parse_logor(const char *expr, int *pos)
 	long result;
 
 	result = filson_parse_logand(expr, pos);
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_EXPR_MAX_ITER) {
 		while (expr[*pos] == ' ' || expr[*pos] == '\t') {
 			(*pos)++;
 		}
@@ -477,7 +480,7 @@ filson_parse_logor(const char *expr, int *pos)
 		} else {
 			break;
 		}
-	}
+	} }
 	return result;
 }
 
@@ -1109,7 +1112,7 @@ filson_execute_while_loop(char **tokens, int start, int end)
 		body_end--;
 	}
 	status = 1;
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_LOOP_MAX_ITER) {
 		filson_execute_parsed_segment(tokens, cond_start, cond_end);
 		if (!filson_last_cmd_success) {
 			break;
@@ -1128,7 +1131,7 @@ filson_execute_while_loop(char **tokens, int start, int end)
 		if (status == 0) {
 			break;
 		}
-	}
+	} }
 	filson_last_cmd_success = 1;
 	return 1;
 }
@@ -1152,7 +1155,7 @@ filson_execute_until_loop(char **tokens, int start, int end)
 	body_start = do_pos + 1;
 	body_end = end;
 
-	while (1) {
+	{ int _iter = 0; while (_iter++ < FILSON_LOOP_MAX_ITER) {
 		status = filson_execute_parsed_segment(tokens, cond_start, cond_end);
 		if (filson_last_cmd_success) {
 			break;
@@ -1171,7 +1174,7 @@ filson_execute_until_loop(char **tokens, int start, int end)
 		if (status == 0) {
 			break;
 		}
-	}
+	} }
 	filson_last_cmd_success = 1;
 	return 1;
 }
