@@ -595,177 +595,154 @@ filson_evaluate_arithmetic(const char *expr)
 	return filson_parse_assign(expr, &pos);
 }
 
+static int
+filson_ecs_append_out(char **out_p, int *out_len_p, int *out_cap_p,
+    const char *cmd_out)
+{
+	int tilde_esc, clen;
+	char *tmp;
+
+	clen = strlen(cmd_out);
+	tilde_esc = (cmd_out[0] == '~') ? 1 : 0;
+	if (*out_len_p + clen + 1 + tilde_esc > *out_cap_p) {
+		while (*out_len_p + clen + 1 + tilde_esc > *out_cap_p)
+			*out_cap_p *= 2;
+		tmp = realloc(*out_p, *out_cap_p);
+		if (tmp == NULL) return 0;
+		*out_p = tmp;
+	}
+	if (tilde_esc)
+		(*out_p)[(*out_len_p)++] = '\\';
+	memcpy(*out_p + *out_len_p, cmd_out, clen);
+	*out_len_p += clen;
+	return 1;
+}
+
+static int
+filson_ecs_backtick(const char *line, int i, char **out_p,
+    int *out_len_p, int *out_cap_p, int *new_i_p)
+{
+	int j, k;
+	char *cmd, *cmd_out;
+
+	j = i + 1;
+	while (line[j] != '\0' && line[j] != '`') j++;
+	if (line[j] != '`') return 0;
+	cmd = malloc((j - (i + 1)) + 1);
+	if (cmd == NULL) return -1;
+	for (k = 0; k < j - (i + 1); k++) cmd[k] = line[i + 1 + k];
+	cmd[k] = '\0';
+	cmd_out = filson_run_subcommand(cmd);
+	free(cmd);
+	if (cmd_out != NULL) {
+		if (!filson_ecs_append_out(out_p, out_len_p, out_cap_p, cmd_out)) {
+			free(cmd_out);
+			return -1;
+		}
+		free(cmd_out);
+	}
+	*new_i_p = j + 1;
+	return 1;
+}
+
+static int
+filson_ecs_dollar_arith(const char *line, int i, char **out_p,
+    int *out_len_p, int *out_cap_p, int *new_i_p)
+{
+	int j, depth, pass_len;
+	char *tmp;
+
+	j = i + 3;
+	depth = 1;
+	while (line[j] != '\0' && depth > 0) {
+		if (line[j] == '(') depth++;
+		else if (line[j] == ')') depth--;
+		if (depth > 0) j++;
+	}
+	if (depth != 0 || line[j] != ')') return -1;
+	pass_len = (j + 2) - i;
+	if (*out_len_p + pass_len + 1 > *out_cap_p) {
+		while (*out_len_p + pass_len + 1 > *out_cap_p) *out_cap_p *= 2;
+		tmp = realloc(*out_p, *out_cap_p);
+		if (tmp == NULL) return -1;
+		*out_p = tmp;
+	}
+	memcpy(*out_p + *out_len_p, line + i, pass_len);
+	*out_len_p += pass_len;
+	*new_i_p = j + 2;
+	return 1;
+}
+
+static int
+filson_ecs_dollar_paren(const char *line, int i, char **out_p,
+    int *out_len_p, int *out_cap_p, int *new_i_p)
+{
+	int j, k, depth;
+	char *cmd, *cmd_out;
+
+	j = i + 2;
+	depth = 1;
+	while (line[j] != '\0' && depth > 0) {
+		if (line[j] == '(') depth++;
+		else if (line[j] == ')') depth--;
+		if (depth > 0) j++;
+	}
+	if (depth != 0) return -1;
+	cmd = malloc((j - (i + 2)) + 1);
+	if (cmd == NULL) return -1;
+	for (k = 0; k < j - (i + 2); k++) cmd[k] = line[i + 2 + k];
+	cmd[k] = '\0';
+	cmd_out = filson_run_subcommand(cmd);
+	free(cmd);
+	if (cmd_out == NULL) return -1;
+	if (!filson_ecs_append_out(out_p, out_len_p, out_cap_p, cmd_out)) {
+		free(cmd_out);
+		return -1;
+	}
+	free(cmd_out);
+	*new_i_p = j + 1;
+	return 1;
+}
+
 static char *
 filson_expand_command_substitutions(const char *line)
 {
-	char *out;
-	int i, j, k, depth, in_single, in_double;
-	int len, out_cap, out_len;
-	char *cmd, *cmd_out;
-	char *tmp;
+	char *out, *tmp;
+	int i, out_cap, out_len, len, new_i, r;
+	int in_single, in_double;
 
-	if (line == NULL) {
-		return NULL;
-	}
+	if (line == NULL) return NULL;
 	len = strlen(line);
 	out_cap = (len * 2) + 1;
 	out = malloc(out_cap);
-	if (out == NULL) {
-		return NULL;
-	}
+	if (out == NULL) return NULL;
 	out_len = 0;
 	i = 0;
 	in_single = 0;
 	in_double = 0;
 	while (line[i] != '\0') {
-		if (!in_double && line[i] == '\'') {
-			in_single = !in_single;
-		}
-		if (!in_single && line[i] == '"') {
-			in_double = !in_double;
-		}
+		if (!in_double && line[i] == '\'') in_single = !in_single;
+		if (!in_single && line[i] == '"') in_double = !in_double;
 		if (!in_single && line[i] == '`') {
-			j = i + 1;
-			while (line[j] != '\0' && line[j] != '`') {
-				j++;
-			}
-			if (line[j] == '`') {
-				cmd = malloc((j - (i + 1)) + 1);
-				if (cmd == NULL) {
-					free(out);
-					return NULL;
-				}
-				for (k = 0; k < j - (i + 1); k++) {
-					cmd[k] = line[i + 1 + k];
-				}
-				cmd[k] = '\0';
-				cmd_out = filson_run_subcommand(cmd);
-				free(cmd);
-				if (cmd_out == NULL) {
-					i = j + 1;
-					continue;
-				}
-				{
-					int tilde_esc = (cmd_out[0] == '~') ? 1 : 0;
-					if (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap) {
-						while (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap)
-							out_cap *= 2;
-						tmp = realloc(out, out_cap);
-						if (tmp == NULL) {
-							free(cmd_out);
-							free(out);
-							return NULL;
-						}
-						out = tmp;
-					}
-					if (tilde_esc)
-						out[out_len++] = '\\';
-					memcpy(out + out_len, cmd_out, strlen(cmd_out));
-					out_len += strlen(cmd_out);
-				}
-				free(cmd_out);
-				i = j + 1;
-				continue;
-			}
+			r = filson_ecs_backtick(line, i, &out, &out_len, &out_cap, &new_i);
+			if (r < 0) { free(out); return NULL; }
+			if (r > 0) { i = new_i; continue; }
 		}
 		if (!in_single && line[i] == '$' && line[i + 1] == '(') {
 			if (line[i + 2] == '(') {
-				int pass_len;
-
-				j = i + 3;
-				depth = 1;
-				while (line[j] != '\0' && depth > 0) {
-					if (line[j] == '(') {
-						depth++;
-					} else if (line[j] == ')') {
-						depth--;
-					}
-					if (depth > 0) {
-						j++;
-					}
-				}
-				if (depth != 0 || line[j] != ')') {
-					free(out);
-					return NULL;
-				}
-				pass_len = (j + 2) - i;
-				if (out_len + pass_len + 1 > out_cap) {
-					while (out_len + pass_len + 1 > out_cap) {
-						out_cap *= 2;
-					}
-					tmp = realloc(out, out_cap);
-					if (tmp == NULL) {
-						free(out);
-						return NULL;
-					}
-					out = tmp;
-				}
-				memcpy(out + out_len, line + i, pass_len);
-				out_len += pass_len;
-				i = j + 2;
-				continue;
+				r = filson_ecs_dollar_arith(line, i, &out, &out_len, &out_cap, &new_i);
+				if (r < 0) { free(out); return NULL; }
+				if (r > 0) { i = new_i; continue; }
 			} else {
-				j = i + 2;
-				depth = 1;
-				while (line[j] != '\0' && depth > 0) {
-					if (line[j] == '(') {
-						depth++;
-					} else if (line[j] == ')') {
-						depth--;
-					}
-					if (depth > 0) {
-						j++;
-					}
-				}
-				if (depth != 0) {
-					free(out);
-					return NULL;
-				}
-				cmd = malloc((j - (i + 2)) + 1);
-				if (cmd == NULL) {
-					free(out);
-					return NULL;
-				}
-				for (k = 0; k < j - (i + 2); k++) {
-					cmd[k] = line[i + 2 + k];
-				}
-				cmd[k] = '\0';
-				cmd_out = filson_run_subcommand(cmd);
-				free(cmd);
-				if (cmd_out == NULL) {
-					free(out);
-					return NULL;
-				}
-				{
-					int tilde_esc = (cmd_out[0] == '~') ? 1 : 0;
-					if (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap) {
-						while (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap)
-							out_cap *= 2;
-						tmp = realloc(out, out_cap);
-						if (tmp == NULL) {
-							free(cmd_out);
-							free(out);
-							return NULL;
-						}
-						out = tmp;
-					}
-					if (tilde_esc)
-						out[out_len++] = '\\';
-					memcpy(out + out_len, cmd_out, strlen(cmd_out));
-					out_len += strlen(cmd_out);
-				}
-				free(cmd_out);
-				i = j + 1;
-				continue;
+				r = filson_ecs_dollar_paren(line, i, &out, &out_len, &out_cap, &new_i);
+				if (r < 0) { free(out); return NULL; }
+				if (r > 0) { i = new_i; continue; }
 			}
 		}
 		if (out_len + 2 > out_cap) {
 			out_cap *= 2;
 			tmp = realloc(out, out_cap);
-			if (tmp == NULL) {
-				free(out);
-				return NULL;
-			}
+			if (tmp == NULL) { free(out); return NULL; }
 			out = tmp;
 		}
 		out[out_len++] = line[i++];
