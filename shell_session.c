@@ -651,98 +651,73 @@ filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_
 }
 
 static char *
-filson_prepare_heredoc(const char *line)
+filson_phd_inline(const char *line, int hd_start, int hd_end, const char *delim, int fd)
 {
-	char delim[256];
-	int hd_start;
-	int hd_end;
-	char *body_line;
-	char *new_line;
-	int fd;
-	int n;
-	int interactive;
-	char *expanded_line;
-	int dlen;
-	const char *p;
-	const char *lend;
-	const char *after_hdoc;
-	int llen;
-	char *seg;
+	char *new_line, *seg, *expanded_line;
+	const char *p, *lend, *after_hdoc;
+	int dlen, llen, n;
 
-	if (!filson_heredoc_find(line, delim, &hd_start, &hd_end)) {
-		return NULL;
-	}
-	strcpy(filson_heredoc_tmppath, "/tmp/filson_hdoc_XXXXXX");
-	fd = mkstemp(filson_heredoc_tmppath);
-	if (fd < 0) {
-		return NULL;
-	}
-	if (line[hd_end] == '\n') {
-		dlen = strlen(delim);
-		p = line + hd_end + 1;
-		after_hdoc = NULL;
-		while (*p != '\0') {
-			lend = p;
-			while (*lend != '\0' && *lend != '\n')
-				lend++;
-			if ((int)(lend - p) == dlen && memcmp(p, delim, dlen) == 0) {
-				after_hdoc = (*lend == '\n') ? lend + 1 : lend;
-				break;
-			}
-			llen = (int)(lend - p);
-			seg = malloc(llen + 1);
-			if (seg != NULL) {
-				memcpy(seg, p, llen);
-				seg[llen] = '\0';
-				expanded_line = filson_expand_string_variables(seg);
-				n = strlen(expanded_line);
-				write(fd, expanded_line, n);
-				write(fd, "\n", 1);
-				if (expanded_line != seg)
-					free(expanded_line);
-				free(seg);
-			}
-			if (*lend == '\0')
-				break;
-			p = lend + 1;
+	dlen = strlen(delim);
+	p = line + hd_end + 1;
+	after_hdoc = NULL;
+	while (*p != '\0') {
+		lend = p;
+		while (*lend != '\0' && *lend != '\n') lend++;
+		if ((int)(lend - p) == dlen && memcmp(p, delim, dlen) == 0) {
+			after_hdoc = (*lend == '\n') ? lend + 1 : lend;
+			break;
 		}
-		close(fd);
-		{
-			int pfx = hd_start;
-			int tlen = strlen(filson_heredoc_tmppath);
-			int sfxlen = after_hdoc ? (int)strlen(after_hdoc) : 0;
-			new_line = malloc(pfx + 2 + tlen + sfxlen + 2);
-			if (new_line == NULL) {
-				unlink(filson_heredoc_tmppath);
-				filson_heredoc_tmppath[0] = '\0';
-				return NULL;
-			}
-			snprintf(new_line, pfx + 2 + tlen + sfxlen + 2,
-			    "%.*s< %s%s", pfx, line, filson_heredoc_tmppath,
-			    after_hdoc ? after_hdoc : "");
+		llen = (int)(lend - p);
+		seg = malloc(llen + 1);
+		if (seg != NULL) {
+			memcpy(seg, p, llen);
+			seg[llen] = '\0';
+			expanded_line = filson_expand_string_variables(seg);
+			n = strlen(expanded_line);
+			write(fd, expanded_line, n);
+			write(fd, "\n", 1);
+			if (expanded_line != seg) free(expanded_line);
+			free(seg);
 		}
-		return new_line;
+		if (*lend == '\0') break;
+		p = lend + 1;
 	}
-	interactive = isatty(STDIN_FILENO);
+	close(fd);
+	{
+		int pfx = hd_start;
+		int tlen = strlen(filson_heredoc_tmppath);
+		int sfxlen = after_hdoc ? (int)strlen(after_hdoc) : 0;
+		new_line = malloc(pfx + 2 + tlen + sfxlen + 2);
+		if (new_line == NULL) {
+			unlink(filson_heredoc_tmppath);
+			filson_heredoc_tmppath[0] = '\0';
+			return NULL;
+		}
+		snprintf(new_line, pfx + 2 + tlen + sfxlen + 2,
+		    "%.*s< %s%s", pfx, line, filson_heredoc_tmppath,
+		    after_hdoc ? after_hdoc : "");
+	}
+	return new_line;
+}
+
+static char *
+filson_phd_interactive(const char *line, int hd_start, int hd_end,
+    const char *delim, int fd)
+{
+	char *body_line, *expanded_line, *new_line;
+	int interactive = isatty(STDIN_FILENO);
+	int n;
+
 	while (1) {
-		if (interactive) {
-			write(STDOUT_FILENO, "heredoc> ", 9);
-		}
+		if (interactive) write(STDOUT_FILENO, "heredoc> ", 9);
 		body_line = filson_read_line();
-		if (body_line == NULL) {
-			break;
-		}
-		if (strcmp(body_line, delim) == 0) {
-			free(body_line);
-			break;
-		}
+		if (body_line == NULL) break;
+		if (strcmp(body_line, delim) == 0) { free(body_line); break; }
 		expanded_line = filson_expand_string_variables(body_line);
 		n = strlen(expanded_line);
 		write(fd, expanded_line, n);
 		write(fd, "\n", 1);
-		if (expanded_line != body_line) {
-			free(expanded_line);
-		}
+		if (expanded_line != body_line) free(expanded_line);
 		free(body_line);
 	}
 	close(fd);
@@ -757,6 +732,21 @@ filson_prepare_heredoc(const char *line)
 	    hd_start + strlen(filson_heredoc_tmppath) + (strlen(line) - hd_end) + 4,
 	    "%.*s< %s%s", hd_start, line, filson_heredoc_tmppath, line + hd_end);
 	return new_line;
+}
+
+static char *
+filson_prepare_heredoc(const char *line)
+{
+	char delim[256];
+	int hd_start, hd_end, fd;
+
+	if (!filson_heredoc_find(line, delim, &hd_start, &hd_end)) return NULL;
+	strcpy(filson_heredoc_tmppath, "/tmp/filson_hdoc_XXXXXX");
+	fd = mkstemp(filson_heredoc_tmppath);
+	if (fd < 0) return NULL;
+	if (line[hd_end] == '\n')
+		return filson_phd_inline(line, hd_start, hd_end, delim, fd);
+	return filson_phd_interactive(line, hd_start, hd_end, delim, fd);
 }
 
 static const char *
