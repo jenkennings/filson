@@ -70,7 +70,6 @@ filson_run_subcommand(const char *cmd)
 	char *out;
 	char *cmd_copy;
 	int status;
-	int i;
 
 	cmd_copy = strdup(cmd);
 	if (cmd_copy == NULL)
@@ -112,7 +111,7 @@ filson_run_subcommand(const char *cmd)
 	}
 	free(cmd_copy);
 	if (out != NULL) {
-		for (i = 0; out[i] != '\0'; i++) {
+		for (int i = 0; out[i] != '\0'; i++) {
 			if (out[i] == '\t')
 				out[i] = '\x0e';
 			else if (out[i] == '\n')
@@ -838,11 +837,11 @@ filson_normalize_script_ops(const char *line)
 static char *
 filson_join_tokens(char **tokens, int start, int end)
 {
-	int i, total, pos, len;
+	int total, pos, len;
 	char *out;
 
 	total = 0;
-	for (i = start; i < end; i++) {
+	for (int i = start; i < end; i++) {
 		total += strlen(tokens[i]) + 1;
 	}
 	out = malloc(total + 1);
@@ -850,7 +849,7 @@ filson_join_tokens(char **tokens, int start, int end)
 		return NULL;
 	}
 	pos = 0;
-	for (i = start; i < end; i++) {
+	for (int i = start; i < end; i++) {
 		len = strlen(tokens[i]);
 		memcpy(out + pos, tokens[i], len);
 		pos += len;
@@ -905,7 +904,6 @@ filson_ep_child_setup(char ***argvv, int i, int stage_count, int pipe_count,
 static int
 filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int out_append[], char *errfiles[], int err_append[], int err_to_out[], int stage_count, int background, const char *segment)
 {
-	int i, j, job_id;
 	int status, pipe_count;
 	int pipes[64][2];
 	pid_t pids[64];
@@ -915,14 +913,14 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 		return 1;
 	}
 	pipe_count = stage_count - 1;
-	for (i = 0; i < pipe_count; i++) {
+	for (int i = 0; i < pipe_count; i++) {
 		if (pipe(pipes[i]) < 0) {
 			perror("filson");
 			filson_last_cmd_success = 0;
 			return 1;
 		}
 	}
-	for (i = 0; i < stage_count; i++) {
+	for (int i = 0; i < stage_count; i++) {
 		pids[i] = fork();
 		if (pids[i] == 0) {
 			filson_ep_child_setup(argvv, i, stage_count, pipe_count, pipes,
@@ -930,13 +928,13 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 		} else if (pids[i] < 0) {
 			perror("filson");
 			filson_last_cmd_success = 0;
-			for (j = 0; j < pipe_count; j++) { (void)close(pipes[j][0]); (void)close(pipes[j][1]); }
+			for (int j = 0; j < pipe_count; j++) { (void)close(pipes[j][0]); (void)close(pipes[j][1]); }
 			return 1;
 		}
 	}
-	for (i = 0; i < pipe_count; i++) { (void)close(pipes[i][0]); (void)close(pipes[i][1]); }
+	for (int i = 0; i < pipe_count; i++) { (void)close(pipes[i][0]); (void)close(pipes[i][1]); }
 	if (background) {
-		job_id = filson_add_job(pids[stage_count - 1], segment, 0);
+		int job_id = filson_add_job(pids[stage_count - 1], segment, 0);
 		if (job_id < 0) {
 			fprintf(stderr, "filson: too many background jobs\n");
 			filson_last_cmd_success = 0;
@@ -947,7 +945,7 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 		return 1;
 	}
 	status = 0;
-	for (i = 0; i < stage_count; i++) {
+	for (int i = 0; i < stage_count; i++) {
 		waitpid(pids[i], &status, 0);
 		if (i == stage_count - 1) {
 			if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
@@ -1008,12 +1006,12 @@ static char **
 filson_efl_collect_items(char **tokens, int item_start, int do_pos)
 {
 	char **items;
-	int i, item_count;
+	int item_count;
 
 	items = malloc(sizeof(char *) * 256);
 	if (items == NULL) return NULL;
 	item_count = 0;
-	for (i = item_start; i < do_pos; i++) {
+	for (int i = item_start; i < do_pos; i++) {
 		if (tokens[i] == NULL || strcmp(tokens[i], ";") == 0) continue;
 		if (item_count >= 255) break;
 		items[item_count] = strdup(tokens[i]);
@@ -1034,7 +1032,7 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	int do_pos, body_start, body_end;
 	int var_pos, in_pos, item_start;
 	char *var_name;
-	int i, status;
+	int status;
 	char item_buf[256];
 	char **items, **expanded_items;
 	extern int filson_break_flag;
@@ -1067,7 +1065,7 @@ filson_execute_for_loop(char **tokens, int start, int end)
 	expanded_items = filson_expand_globs(items);
 	if (expanded_items != items) free(items);
 	status = 1;
-	for (i = 0; expanded_items[i] != NULL; i++) {
+	for (int i = 0; expanded_items[i] != NULL; i++) {
 		snprintf(item_buf, sizeof(item_buf), "%s", expanded_items[i]);
 		setenv(var_name, item_buf, 1);
 		filson_break_flag = 0;
@@ -1277,13 +1275,11 @@ filson_find_matching_fi(char **tokens, int if_pos, int *fi_pos)
 static int
 filson_find_then_else(char **tokens, int start, int end, int *then_pos, int *else_pos, int *elif_pos)
 {
-	int i, depth;
-
 	*then_pos = -1;
 	*else_pos = -1;
 	*elif_pos = -1;
-	depth = 1;
-	for (i = start + 1; i < end; i++) {
+	int depth = 1;
+	for (int i = start + 1; i < end; i++) {
 		if (strcmp(tokens[i], "if") == 0) {
 			depth++;
 		} else if (strcmp(tokens[i], "fi") == 0) {
@@ -1370,10 +1366,9 @@ filson_eps_scan_redir(char **tokens, int start, int end, int *j_p,
     char *errfiles[], int err_append[], int err_to_out[],
     char *argvbuf[][256])
 {
-	int i, ni;
-
 	*j_p = 0;
-	for (i = start; i < end; i++) {
+	for (int i = start; i < end; i++) {
+		int ni;
 		if (strcmp(tokens[i], "|") == 0) {
 			if (*j_p + 1 >= 64) {
 				fprintf(stderr, "filson: too many pipeline stages (max 64)\n");
@@ -1469,11 +1464,9 @@ static int
 filson_eps_count_stages(char **tokens, int start, int end,
     int *stage_count_p, int *has_redir_p)
 {
-	int i;
-
 	*stage_count_p = 1;
 	*has_redir_p = 0;
-	for (i = start; i < end; i++) {
+	for (int i = start; i < end; i++) {
 		if (strcmp(tokens[i], "&") == 0) {
 			fprintf(stderr, "filson: syntax error near unexpected token `&'\n");
 			filson_last_cmd_success = 0;
@@ -1501,7 +1494,7 @@ filson_eps_fastpath(char **tokens, int start, int end, int background)
 {
 	char *segment;
 	char *saved_end;
-	int i, k, argc;
+	int k, argc;
 
 	segment = filson_join_tokens(tokens, start, end);
 	if (segment == NULL) {
@@ -1516,7 +1509,7 @@ filson_eps_fastpath(char **tokens, int start, int end, int background)
 		free(segment);
 		return k;
 	}
-	for (i = start; i < end; i++) {
+	for (int i = start; i < end; i++) {
 		if (strcmp(tokens[i], ";") == 0) {
 			k = filson_execute_and_chain(segment);
 			free(segment);
@@ -1535,7 +1528,7 @@ filson_eps_fastpath(char **tokens, int start, int end, int background)
 static int
 filson_execute_parsed_segment(char **tokens, int start, int end)
 {
-	int i, j, k;
+	int j, k;
 	int background, stage_count, has_redir;
 	int pos[64];
 	char *infiles[64], *outfiles[64], *errfiles[64];
@@ -1559,7 +1552,7 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 		return 1;
 	if (stage_count == 1 && !has_redir)
 		return filson_eps_fastpath(tokens, start, end, background);
-	for (i = 0; i < 64; i++) {
+	for (int i = 0; i < 64; i++) {
 		pos[i] = 0; infiles[i] = NULL; outfiles[i] = NULL; errfiles[i] = NULL;
 		out_append[i] = 0; err_append[i] = 0; err_to_out[i] = 0;
 	}
@@ -1567,7 +1560,7 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 	    pos, infiles, outfiles, out_append, errfiles, err_append, err_to_out,
 	    argvbuf))
 		return 1;
-	for (i = 0; i < stage_count; i++) {
+	for (int i = 0; i < stage_count; i++) {
 		if (pos[i] == 0) {
 			fprintf(stderr, "filson: syntax error near unexpected token `|'\n");
 			filson_last_cmd_success = 0;

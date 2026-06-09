@@ -466,12 +466,12 @@ filson_sl_store_token(char ***tokens_p, int *pos_p, int *bufsize_p,
     int unquoted_start, int eq_tilde_escaped)
 {
 	char *token_copy;
-	int eqpos, k;
+	int eqpos;
 
 	if (j == 0 && !started_in_double && !started_in_single) return;
 	tokbuf[j] = '\0';
 	eqpos = -1;
-	for (k = 0; k < j; k++) { if (tokbuf[k] == '=') { eqpos = k; break; } }
+	for (int k = 0; k < j; k++) { if (tokbuf[k] == '=') { eqpos = k; break; } }
 	if (eqpos >= 0 && tokbuf[eqpos + 1] == '~' && !eq_tilde_escaped) {
 		char *texp = filson_tilde_expand(tokbuf + eqpos + 1);
 		if (texp != NULL) {
@@ -565,7 +565,7 @@ filson_split_line(char *line)
 	int bufsize, position;
 	char **tokens;
 	char tokbuf[4096];
-	int i, j;
+	int i;
 	int in_single, in_double, brace_depth, paren_depth;
 	int unquoted_start, eq_tilde_escaped;
 	int started_in_single, started_in_double;
@@ -578,7 +578,7 @@ filson_split_line(char *line)
 	while (line[i] != '\0') {
 		while (line[i] == ' ' || line[i] == '\t' || line[i] == '\n') i++;
 		if (line[i] == '\0') break;
-		j = 0; in_single = 0; in_double = 0;
+		int j = 0; in_single = 0; in_double = 0;
 		brace_depth = 0; paren_depth = 0;
 		unquoted_start = 0; eq_tilde_escaped = 0;
 		started_in_single = 0; started_in_double = 0;
@@ -597,7 +597,6 @@ filson_split_line(char *line)
 static int
 filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_pos)
 {
-	int i;
 	int in_single;
 	int in_double;
 	int arith_depth;
@@ -607,7 +606,7 @@ filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_
 	in_single = 0;
 	in_double = 0;
 	arith_depth = 0;
-	for (i = 0; line[i] != '\0'; i++) {
+	for (int i = 0; line[i] != '\0'; i++) {
 		if (!in_double && line[i] == '\'') {
 			in_single = !in_single;
 			continue;

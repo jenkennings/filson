@@ -13,12 +13,10 @@
 static int
 filson_has_glob_chars_impl(const char *str)
 {
-	int i;
-
 	if (str == NULL || str[0] == '\0') {
 		return 0;
 	}
-	for (i = 0; str[i] != '\0'; i++) {
+	for (int i = 0; str[i] != '\0'; i++) {
 		if (str[i] == '*' || str[i] == '?' || str[i] == '[') {
 			return 1;
 		}
@@ -63,8 +61,7 @@ static int
 filson_eg_add_glob(char **pglob_pathv, int pathc, char **expanded,
     int *position_p, int *bufsize_p, char ***expanded_p)
 {
-	int j;
-	for (j = 0; j < pathc; j++) {
+	for (int j = 0; j < pathc; j++) {
 		if (*position_p >= *bufsize_p - 1) {
 			char **t = filson_eg_grow(*expanded_p, bufsize_p);
 			if (!t) return 0;
@@ -82,20 +79,20 @@ filson_eg_add_glob(char **pglob_pathv, int pathc, char **expanded,
 char **
 filson_expand_globs(char **args)
 {
-	int i, has_globs, bufsize, position;
+	int has_globs, bufsize, position;
 	glob_t pglob;
 	char **expanded;
 
 	if (args == NULL) return NULL;
 	has_globs = 0;
-	for (i = 0; args[i] != NULL; i++)
+	for (int i = 0; args[i] != NULL; i++)
 		if (filson_has_glob_chars_impl(args[i])) { has_globs = 1; break; }
 	if (!has_globs) return args;
 	bufsize = FILSON_GLOB_BUFSIZE;
 	position = 0;
 	expanded = malloc(bufsize * sizeof(char *));
 	if (!expanded) { fprintf(stderr, "filson: allocation error\n"); return args; }
-	for (i = 0; args[i] != NULL; i++) {
+	for (int i = 0; args[i] != NULL; i++) {
 		if (filson_has_glob_chars_impl(args[i])) {
 			if (filson_glob_expand_impl(args[i], &pglob) == 0 && pglob.gl_pathc > 0) {
 				if (!filson_eg_add_glob(pglob.gl_pathv, (int)pglob.gl_pathc,
@@ -120,12 +117,10 @@ filson_expand_globs(char **args)
 void
 filson_free_expanded_args(char **args)
 {
-	int i;
-
 	if (args == NULL) {
 		return;
 	}
-	for (i = 0; args[i] != NULL; i++) {
+	for (int i = 0; args[i] != NULL; i++) {
 		free(args[i]);
 	}
 	free(args);

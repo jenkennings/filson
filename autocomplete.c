@@ -71,9 +71,7 @@ filson_is_executable(const char *path)
 static int
 filson_match_exists(struct filson_match_list *matches, const char *value)
 {
-	int i;
-
-	for (i = 0; i < matches->count; i++) {
+	for (int i = 0; i < matches->count; i++) {
 		if (strcmp(matches->items[i], value) == 0) {
 			return 1;
 		}
@@ -106,9 +104,7 @@ filson_add_match(struct filson_match_list *matches, const char *value)
 static void
 filson_free_matches(struct filson_match_list *matches)
 {
-	int i;
-
-	for (i = 0; i < matches->count; i++) {
+	for (int i = 0; i < matches->count; i++) {
 		free(matches->items[i]);
 	}
 	free(matches->items);
@@ -139,14 +135,13 @@ filson_sort_matches(struct filson_match_list *matches)
 static int
 filson_common_prefix_len(struct filson_match_list *matches)
 {
-	int i;
 	int n;
 
 	if (matches->count == 0) {
 		return 0;
 	}
 	n = (int)strlen(matches->items[0]);
-	for (i = 1; i < matches->count; i++) {
+	for (int i = 1; i < matches->count; i++) {
 		int j;
 		int m;
 
@@ -270,9 +265,7 @@ static void
 filson_collect_builtin_matches(const char *prefix, const char **builtins, int builtin_count,
 	struct filson_match_list *matches)
 {
-	int i;
-
-	for (i = 0; i < builtin_count; i++) {
+	for (int i = 0; i < builtin_count; i++) {
 		if (filson_starts_with(builtins[i], prefix)) {
 			filson_add_match(matches, builtins[i]);
 		}
@@ -322,9 +315,8 @@ static void
 filson_hac_display_matches(struct filson_match_list *matches, const char *buf,
     void (*refresh_line)(const char *))
 {
-	int i;
 	printf("\n");
-	for (i = 0; i < matches->count; i++) {
+	for (int i = 0; i < matches->count; i++) {
 		filson_print_safe(matches->items[i]);
 		if (i + 1 < matches->count) printf("  ");
 	}

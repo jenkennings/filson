@@ -80,7 +80,6 @@ filson_cd(char **args)
 int
 filson_help(char **args)
 {
-	int i;
 	char buf[4096];
 	int buf_len;
 
@@ -90,7 +89,7 @@ filson_help(char **args)
 	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Bryan Copley's Filson\n");
 	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Type program names and arguments, and hit enter.\n");
 	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "The following are built in:\n");
-	for (i = 0; i < filson_num_builtins(); i++) {
+	for (int i = 0; i < filson_num_builtins(); i++) {
 		buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "  %s\n", builtin_str[i]);
 	}
 	buf_len += snprintf(buf + buf_len, sizeof(buf) - buf_len, "Use the man command for information on other programs.\n");
@@ -120,12 +119,10 @@ filson_exit(char **args)
 int
 filson_set(char **args)
 {
-	int i;
-	int count;
 	extern int filson_noglob;
 
 	if (args[1] != NULL && args[1][0] == '-' && args[1][1] != '\0' && args[1][1] != '-') {
-		for (i = 1; args[i] != NULL && args[i][0] == '-' && args[i][1] != '\0'; i++) {
+		for (int i = 1; args[i] != NULL && args[i][0] == '-' && args[i][1] != '\0'; i++) {
 			const char *flags = args[i] + 1;
 			while (*flags) {
 				if (*flags == 'f') filson_noglob = 1;
@@ -136,7 +133,7 @@ filson_set(char **args)
 		return 1;
 	}
 	if (args[1] != NULL && args[1][0] == '+' && args[1][1] != '\0') {
-		for (i = 1; args[i] != NULL && args[i][0] == '+'; i++) {
+		for (int i = 1; args[i] != NULL && args[i][0] == '+'; i++) {
 			const char *flags = args[i] + 1;
 			while (*flags) {
 				if (*flags == 'f') filson_noglob = 0;
@@ -147,8 +144,8 @@ filson_set(char **args)
 		return 1;
 	}
 	if (args[1] != NULL && strcmp(args[1], "--") == 0) {
-		count = 0;
-		for (i = 2; args[i] != NULL; i++) {
+		int count = 0;
+		for (int i = 2; args[i] != NULL; i++) {
 			count++;
 		}
 		filson_set_posparams(&args[2], count);
@@ -363,7 +360,6 @@ filson_export(char **args)
 int
 filson_type(char **args)
 {
-	int i;
 	char *path, *token, *path_copy, *full_path;
 	size_t needed;
 
@@ -372,7 +368,7 @@ filson_type(char **args)
 		filson_last_cmd_success = 0;
 		return 1;
 	}
-	for (i = 0; i < filson_num_builtins(); i++) {
+	for (int i = 0; i < filson_num_builtins(); i++) {
 		if (strcmp(args[1], builtin_str[i]) == 0) {
 			printf("%s is a shell builtin\n", args[1]);
 			filson_last_cmd_success = 1;
@@ -425,14 +421,13 @@ filson_alias(char **args)
 	char *eq;
 	char *name;
 	char *value;
-	int i;
 
 	if (args[1] == NULL) {
 		filson_print_aliases();
 		filson_last_cmd_success = 1;
 		return 1;
 	}
-	for (i = 1; args[i] != NULL; i++) {
+	for (int i = 1; args[i] != NULL; i++) {
 		eq = strchr(args[i], '=');
 		if (eq != NULL) {
 			name = malloc(eq - args[i] + 1);
@@ -468,7 +463,6 @@ filson_alias(char **args)
 int
 filson_unalias(char **args)
 {
-	int i;
 	int found;
 
 	if (args[1] == NULL) {
@@ -481,7 +475,7 @@ filson_unalias(char **args)
 		filson_last_cmd_success = 1;
 		return 1;
 	}
-	for (i = 1; args[i] != NULL; i++) {
+	for (int i = 1; args[i] != NULL; i++) {
 		found = filson_remove_alias(args[i]);
 		if (!found) {
 			warnx("unalias: %s: not found", args[i]);
@@ -504,7 +498,7 @@ filson_trap(char **args)
 int
 filson_ssh(char **args)
 {
-	int argc, i;
+	int argc;
 	char **ssh_args;
 	pid_t pid;
 	int status;
@@ -525,7 +519,7 @@ filson_ssh(char **args)
 		return 1;
 	}
 	ssh_args[0] = "ssh";
-	for (i = 1; i < argc; i++) {
+	for (int i = 1; i < argc; i++) {
 		ssh_args[i] = args[i];
 	}
 	ssh_args[argc] = NULL;
@@ -553,14 +547,12 @@ filson_ssh(char **args)
 int
 filson_local(char **args)
 {
-	int i;
-
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: local: usage: local var_name [var_name ...]\n");
 		filson_last_cmd_success = 0;
 		return 1;
 	}
-	for (i = 1; args[i] != NULL; i++) {
+	for (int i = 1; args[i] != NULL; i++) {
 		filson_declare_local(args[i]);
 	}
 	filson_last_cmd_success = 1;
@@ -830,7 +822,6 @@ filson_eval(char **args)
 {
 	char buf[4096];
 	char *arg;
-	int i;
 	int pos;
 	int len;
 
@@ -839,7 +830,7 @@ filson_eval(char **args)
 		return 1;
 	}
 	pos = 0;
-	for (i = 1; args[i] != NULL && pos < (int)sizeof(buf) - 2; i++) {
+	for (int i = 1; args[i] != NULL && pos < (int)sizeof(buf) - 2; i++) {
 		arg = args[i];
 		len = strlen(arg);
 		if (len >= 2 && arg[0] == '"' && arg[len - 1] == '"') {

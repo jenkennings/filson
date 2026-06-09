@@ -32,14 +32,13 @@ static char *
 filson_unescape_word(const char *s)
 {
 	char *out;
-	int i;
 	int j;
 
 	out = malloc(strlen(s) + 1);
 	if (out == NULL)
 		return strdup(s);
 	j = 0;
-	for (i = 0; s[i] != '\0'; i++) {
+	for (int i = 0; s[i] != '\0'; i++) {
 		if (s[i] == '\\' && s[i + 1] != '\0') {
 			i++;
 		}
@@ -53,17 +52,15 @@ static char *
 filson_unescape_dquote_word(const char *s)
 {
 	char *out;
-	int i;
 	int j;
-	char c;
 
 	out = malloc(strlen(s) + 1);
 	if (out == NULL)
 		return strdup(s);
 	j = 0;
-	for (i = 0; s[i] != '\0'; i++) {
+	for (int i = 0; s[i] != '\0'; i++) {
 		if (s[i] == '\\' && s[i + 1] != '\0') {
-			c = s[i + 1];
+			char c = s[i + 1];
 			if (c == '$' || c == '`' || c == '"' || c == '\\' ||
 			    c == '}' || c == '\n') {
 				i++;
@@ -81,8 +78,6 @@ static void
 filson_ep_append(char **out, int *out_len, int *out_cap,
     const char *val, int val_len, int escape_glob)
 {
-	int k;
-
 	if (*out_len + val_len * 2 + 4 > *out_cap) {
 		*out_cap = *out_len + val_len * 2 + 64;
 		*out = realloc(*out, *out_cap);
@@ -90,7 +85,7 @@ filson_ep_append(char **out, int *out_len, int *out_cap,
 			return;
 	}
 	if (escape_glob) {
-		for (k = 0; k < val_len; k++) {
+		for (int k = 0; k < val_len; k++) {
 			if (val[k] == '*' || val[k] == '?' ||
 			    val[k] == '[' || val[k] == '\\')
 				(*out)[(*out_len)++] = '\\';
@@ -154,7 +149,6 @@ filson_expand_pattern(const char *pat, int pat_len)
 	char *out;
 	int out_cap;
 	int out_len;
-	int i;
 	int in_dq;
 	char var_name[256];
 	int vn_len;
@@ -167,7 +161,7 @@ filson_expand_pattern(const char *pat, int pat_len)
 		return NULL;
 	out_len = 0;
 	in_dq = 0;
-	for (i = 0; i < pat_len; i++) {
+	for (int i = 0; i < pat_len; i++) {
 		if ((unsigned char)pat[i] == 0x05) {
 			in_dq = !in_dq;
 			continue;
@@ -376,14 +370,14 @@ filson_ebe_expand_word(char *word, int word_is_quoted)
 static char *
 filson_ebe_plus_at(void)
 {
-	int count, total, kk, rp;
+	int count, total, rp;
 	char *pv, *result;
 
 	count = filson_get_pospar_count();
 	if (count == 0)
 		return strdup("\x03");
 	total = 2;
-	for (kk = 1; kk <= count; kk++) {
+	for (int kk = 1; kk <= count; kk++) {
 		pv = filson_get_pospar(kk);
 		if (pv && ((unsigned char)pv[0] == 0x01 || (unsigned char)pv[0] == 0x02))
 			pv++;
@@ -394,7 +388,7 @@ filson_ebe_plus_at(void)
 		return strdup("");
 	rp = 0;
 	result[rp++] = '\x03';
-	for (kk = 1; kk <= count; kk++) {
+	for (int kk = 1; kk <= count; kk++) {
 		pv = filson_get_pospar(kk);
 		if (pv && ((unsigned char)pv[0] == 0x01 || (unsigned char)pv[0] == 0x02))
 			pv++;
@@ -472,9 +466,7 @@ filson_ebe_word_op(char op1, int colon, const char *var_value,
 static int
 filson_ebe_scan_op(const char *inner, int inner_len, char *op1_out, int *colon_out)
 {
-	int i;
-
-	for (i = 0; i < inner_len; i++) {
+	for (int i = 0; i < inner_len; i++) {
 		if ((inner[i] >= 'A' && inner[i] <= 'Z') ||
 		    (inner[i] >= 'a' && inner[i] <= 'z') ||
 		    (inner[i] >= '0' && inner[i] <= '9') ||
@@ -727,7 +719,7 @@ filson_esv_dollar_special(const char *str, int i, char **out, int *j_p,
 static int
 filson_esv_dollar_at(int i, char **out, int *j_p, int input_len)
 {
-	int k, count, val_len;
+	int count, val_len;
 	const char *ifs_sep;
 	char sep_char;
 	char *pval;
@@ -735,7 +727,7 @@ filson_esv_dollar_at(int i, char **out, int *j_p, int input_len)
 	ifs_sep = getenv("IFS");
 	sep_char = (ifs_sep && ifs_sep[0]) ? ifs_sep[0] : ' ';
 	count = filson_get_pospar_count();
-	for (k = 1; k <= count; k++) {
+	for (int k = 1; k <= count; k++) {
 		pval = filson_get_pospar(k);
 		if (pval == NULL) continue;
 		if ((unsigned char)pval[0] == 0x01 || (unsigned char)pval[0] == 0x02)
@@ -791,7 +783,7 @@ filson_esv_dollar_arith(const char *str, int i, char **out, int *j_p,
 char *
 filson_expand_string_variables(const char *str)
 {
-	int i, j, input_len, expansion_found, local_in_dq, new_i;
+	int j, input_len, expansion_found, local_in_dq, new_i;
 	char *output, *result_inner;
 
 	if (str == NULL)
@@ -811,7 +803,7 @@ filson_expand_string_variables(const char *str)
 	if (output == NULL)
 		return (char *)str;
 	j = 0; local_in_dq = 0;
-	for (i = 0; str[i] != '\0'; i++) {
+	for (int i = 0; str[i] != '\0'; i++) {
 		if ((unsigned char)str[i] == 0x05) {
 			expansion_found = 1;
 			if (!filson_in_dquote_context) {

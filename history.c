@@ -23,7 +23,7 @@ filson_history_last_entry(void)
 static char *
 filson_history_last_arg(const char *line)
 {
-	int start, end, i;
+	int start, end;
 	char *arg;
 
 	if (line == NULL) {
@@ -52,7 +52,7 @@ filson_history_last_arg(const char *line)
 	if (arg == NULL) {
 		return NULL;
 	}
-	for (i = start; i <= end; i++) {
+	for (int i = start; i <= end; i++) {
 		arg[i - start] = line[i];
 	}
 	arg[end - start + 1] = '\0';
@@ -62,14 +62,14 @@ filson_history_last_arg(const char *line)
 static char *
 filson_expand_last_arg_token(const char *line, const char *last_arg)
 {
-	int i, count, new_len, j;
+	int count, new_len, j;
 	char *expanded;
 
 	if (line == NULL || last_arg == NULL) {
 		return NULL;
 	}
 	count = 0;
-	for (i = 0; line[i] != '\0'; i++) {
+	for (int i = 0; line[i] != '\0'; i++) {
 		if (line[i] == '!' && line[i + 1] == '$') {
 			count++;
 			i++;
@@ -83,7 +83,8 @@ filson_expand_last_arg_token(const char *line, const char *last_arg)
 	if (expanded == NULL) {
 		return NULL;
 	}
-	for (i = 0, j = 0; line[i] != '\0'; i++) {
+	j = 0;
+	for (int i = 0; line[i] != '\0'; i++) {
 		if (line[i] == '!' && line[i + 1] == '$') {
 			memcpy(expanded + j, last_arg, strlen(last_arg));
 			j += strlen(last_arg);
@@ -114,7 +115,7 @@ filson_history_get(int idx)
 int
 filson_history(char **args)
 {
-	int i, start, limit;
+	int start, limit;
 	char *endptr;
 	long parsed;
 
@@ -136,7 +137,7 @@ filson_history(char **args)
 		}
 	}
 	start = filson_history_count - limit;
-	for (i = start; i < filson_history_count; i++) {
+	for (int i = start; i < filson_history_count; i++) {
 		printf("%d %s\n", i + 1, filson_history_entries[i]);
 	}
 	filson_last_cmd_success = 1;
@@ -146,14 +147,12 @@ filson_history(char **args)
 void
 filson_add_history(const char *line)
 {
-	int i;
-
 	if (line == NULL || line[0] == '\0') {
 		return;
 	}
 	if (filson_history_count == FILSON_HISTORY_SIZE) {
 		free(filson_history_entries[0]);
-		for (i = 1; i < FILSON_HISTORY_SIZE; i++) {
+		for (int i = 1; i < FILSON_HISTORY_SIZE; i++) {
 			filson_history_entries[i - 1] = filson_history_entries[i];
 		}
 		filson_history_count--;
@@ -167,9 +166,7 @@ filson_add_history(const char *line)
 void
 filson_clear_history(void)
 {
-	int i;
-
-	for (i = 0; i < filson_history_count; i++) {
+	for (int i = 0; i < filson_history_count; i++) {
 		free(filson_history_entries[i]);
 		filson_history_entries[i] = NULL;
 	}

@@ -24,9 +24,7 @@ static int filson_next_job_id = 1;
 static int
 filson_find_job_slot_by_id(int job_id)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_JOBS; i++) {
+	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (filson_jobs_table[i].used && filson_jobs_table[i].id == job_id) {
 			return i;
 		}
@@ -37,9 +35,7 @@ filson_find_job_slot_by_id(int job_id)
 static int
 filson_find_job_slot_by_pid(pid_t pid)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_JOBS; i++) {
+	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (filson_jobs_table[i].used && filson_jobs_table[i].pid == pid) {
 			return i;
 		}
@@ -50,11 +46,11 @@ filson_find_job_slot_by_pid(pid_t pid)
 static int
 filson_find_recent_job_slot(void)
 {
-	int i, best_slot, best_id;
+	int best_slot, best_id;
 
 	best_slot = -1;
 	best_id = -1;
-	for (i = 0; i < FILSON_MAX_JOBS; i++) {
+	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (filson_jobs_table[i].used && filson_jobs_table[i].id > best_id) {
 			best_id = filson_jobs_table[i].id;
 			best_slot = i;
@@ -77,9 +73,7 @@ filson_remove_job_slot(int slot)
 int
 filson_add_job(pid_t pid, const char *segment, int stopped)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_JOBS; i++) {
+	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (!filson_jobs_table[i].used) {
 			filson_jobs_table[i].used = 1;
 			filson_jobs_table[i].id = filson_next_job_id;
@@ -132,11 +126,9 @@ filson_reap_background_jobs(void)
 int
 filson_jobs(char **args)
 {
-	int i;
-
 	(void)args;
 	filson_reap_background_jobs();
-	for (i = 0; i < FILSON_MAX_JOBS; i++) {
+	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (filson_jobs_table[i].used) {
 			printf("[%d] %s %d %s\n",
 			    filson_jobs_table[i].id,
@@ -233,13 +225,13 @@ filson_bg(char **args)
 int
 filson_wait(char **args)
 {
-	int slot, status, i;
+	int slot, status;
 	char *endptr;
 	long id;
 	pid_t pid;
 
 	if (args[1] == NULL) {
-		for (i = 0; i < FILSON_MAX_JOBS; i++) {
+		for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 			if (filson_jobs_table[i].used) {
 				pid = waitpid(filson_jobs_table[i].pid, &status, 0);
 				if (pid > 0) {

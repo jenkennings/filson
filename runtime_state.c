@@ -51,12 +51,10 @@ static int filson_global_pospar_count = 0;
 char *
 filson_lookup_alias(const char *name)
 {
-	int i;
-
 	if (name == NULL) {
 		return NULL;
 	}
-	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
 			return filson_aliases[i].value;
 		}
@@ -67,14 +65,13 @@ filson_lookup_alias(const char *name)
 void
 filson_set_alias(const char *name, const char *value)
 {
-	int i;
 	int empty_slot;
 
 	if (name == NULL || value == NULL) {
 		return;
 	}
 	empty_slot = -1;
-	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
 			free(filson_aliases[i].value);
 			filson_aliases[i].value = malloc(strlen(value) + 1);
@@ -107,20 +104,17 @@ filson_set_alias(const char *name, const char *value)
 void
 filson_print_aliases(void)
 {
-	int i;
 	struct filson_alias_entry sorted[FILSON_MAX_ALIASES];
 	int count;
-	int j;
-	int k;
 
 	count = 0;
-	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used) {
 			sorted[count++] = filson_aliases[i];
 		}
 	}
-	for (i = 0; i < count - 1; i++) {
-		for (j = i + 1; j < count; j++) {
+	for (int i = 0; i < count - 1; i++) {
+		for (int j = i + 1; j < count; j++) {
 			if (strcmp(sorted[i].name, sorted[j].name) > 0) {
 				struct filson_alias_entry tmp = sorted[i];
 				sorted[i] = sorted[j];
@@ -128,15 +122,14 @@ filson_print_aliases(void)
 			}
 		}
 	}
-	(void)k;
-	for (i = 0; i < count; i++) {
+	for (int i = 0; i < count; i++) {
 		int needs_quote = 0;
 		const char *v = sorted[i].value;
 
 		if (v[0] == '\0') {
 			needs_quote = 1;
 		} else {
-			for (j = 0; v[j] != '\0'; j++) {
+			for (int j = 0; v[j] != '\0'; j++) {
 				if (v[j] == ' ' || v[j] == '\t' || v[j] == '\'' ||
 				    v[j] == '"' || v[j] == '\\' || v[j] == '$' ||
 				    v[j] == '!' || v[j] == '&' || v[j] == '|' ||
@@ -158,19 +151,14 @@ filson_print_aliases(void)
 void
 filson_print_one_alias(const char *name)
 {
-	int i;
-	int j;
-	int needs_quote;
-	const char *v;
-
-	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
-			v = filson_aliases[i].value;
-			needs_quote = 0;
+			const char *v = filson_aliases[i].value;
+			int needs_quote = 0;
 			if (v[0] == '\0') {
 				needs_quote = 1;
 			} else {
-				for (j = 0; v[j] != '\0'; j++) {
+				for (int j = 0; v[j] != '\0'; j++) {
 					if (v[j] == ' ' || v[j] == '\t' || v[j] == '\'' ||
 					    v[j] == '"' || v[j] == '\\' || v[j] == '$' ||
 					    v[j] == '!' || v[j] == '&' || v[j] == '|' ||
@@ -195,9 +183,7 @@ filson_print_one_alias(const char *name)
 int
 filson_remove_alias(const char *name)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
 			filson_aliases[i].used = 0;
 			free(filson_aliases[i].name);
@@ -213,9 +199,7 @@ filson_remove_alias(const char *name)
 void
 filson_remove_all_aliases(void)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_ALIASES; i++) {
+	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used) {
 			filson_aliases[i].used = 0;
 			free(filson_aliases[i].name);
@@ -228,14 +212,13 @@ filson_remove_all_aliases(void)
 void
 filson_define_function(const char *name, const char *body)
 {
-	int i;
 	int empty_slot;
 
 	if (name == NULL || body == NULL) {
 		return;
 	}
 	empty_slot = -1;
-	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used && strcmp(filson_functions[i].name, name) == 0) {
 			free(filson_functions[i].body);
 			filson_functions[i].body = malloc(strlen(body) + 1);
@@ -267,12 +250,10 @@ filson_define_function(const char *name, const char *body)
 char *
 filson_lookup_function(const char *name)
 {
-	int i;
-
 	if (name == NULL) {
 		return NULL;
 	}
-	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used && strcmp(filson_functions[i].name, name) == 0) {
 			return filson_functions[i].body;
 		}
@@ -283,12 +264,10 @@ filson_lookup_function(const char *name)
 int
 filson_unset_function(const char *name)
 {
-	int i;
-
 	if (name == NULL) {
 		return 0;
 	}
-	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used && strcmp(filson_functions[i].name, name) == 0) {
 			free(filson_functions[i].name);
 			free(filson_functions[i].body);
@@ -315,9 +294,7 @@ filson_print_function_definition(const char *name)
 void
 filson_print_all_function_definitions(void)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used) {
 			printf("%s() {\n", filson_functions[i].name);
 			printf("\t%s\n", filson_functions[i].body);
@@ -329,9 +306,7 @@ filson_print_all_function_definitions(void)
 void
 filson_print_all_function_names(void)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used) {
 			printf("%s\n", filson_functions[i].name);
 		}
@@ -341,9 +316,7 @@ filson_print_all_function_names(void)
 void
 filson_print_all_function_declarations(void)
 {
-	int i;
-
-	for (i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
+	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used) {
 			printf("declare -f %s\n", filson_functions[i].name);
 		}
@@ -390,7 +363,6 @@ int
 filson_shift_posparams(int n)
 {
 	struct filson_param_frame *fr;
-	int i;
 
 	if (!filson_has_active_function()) {
 		return -1;
@@ -402,13 +374,13 @@ filson_shift_posparams(int n)
 	if (n <= 0) {
 		return 0;
 	}
-	for (i = 1; i < fr->count - n; i++) {
+	for (int i = 1; i < fr->count - n; i++) {
 		if (fr->params[i] != NULL) {
 			free(fr->params[i]);
 		}
 		fr->params[i] = fr->params[i + n];
 	}
-	for (i = fr->count - n; i < fr->count; i++) {
+	for (int i = fr->count - n; i < fr->count; i++) {
 		fr->params[i] = NULL;
 	}
 	fr->count -= n;
@@ -424,28 +396,27 @@ filson_has_active_function(void)
 void
 filson_set_posparams(char **args, int count)
 {
-	int i;
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth > 0) {
 		fr = &filson_call_stack[filson_call_depth - 1];
-		for (i = 1; i < fr->count; i++) {
+		for (int i = 1; i < fr->count; i++) {
 			free(fr->params[i]);
 			fr->params[i] = NULL;
 		}
 		fr->count = 1;
-		for (i = 0; i < count && (i + 1) < FILSON_MAX_POSPARAMS; i++) {
+		for (int i = 0; i < count && (i + 1) < FILSON_MAX_POSPARAMS; i++) {
 			fr->params[i + 1] = args[i] ? strdup(args[i]) : NULL;
 			fr->count++;
 		}
 		return;
 	}
-	for (i = 0; i < filson_global_pospar_count; i++) {
+	for (int i = 0; i < filson_global_pospar_count; i++) {
 		free(filson_global_posparams[i]);
 		filson_global_posparams[i] = NULL;
 	}
 	filson_global_pospar_count = 0;
-	for (i = 0; i < count && i < FILSON_MAX_POSPARAMS; i++) {
+	for (int i = 0; i < count && i < FILSON_MAX_POSPARAMS; i++) {
 		filson_global_posparams[i] = args[i] ? strdup(args[i]) : NULL;
 		filson_global_pospar_count++;
 	}
@@ -455,13 +426,12 @@ void
 filson_declare_local(const char *name)
 {
 	struct filson_param_frame *fr;
-	int i;
 
 	if (filson_call_depth == 0 || name == NULL) {
 		return;
 	}
 	fr = &filson_call_stack[filson_call_depth - 1];
-	for (i = 0; i < fr->local_count; i++) {
+	for (int i = 0; i < fr->local_count; i++) {
 		if (strcmp(fr->local_vars[i].name, name) == 0) {
 			return;
 		}
@@ -482,13 +452,12 @@ static void
 filson_restore_locals(void)
 {
 	struct filson_param_frame *fr;
-	int i;
 
 	if (filson_call_depth == 0) {
 		return;
 	}
 	fr = &filson_call_stack[filson_call_depth - 1];
-	for (i = 0; i < fr->local_count; i++) {
+	for (int i = 0; i < fr->local_count; i++) {
 		if (fr->local_vars[i].saved_value != NULL) {
 			setenv(fr->local_vars[i].name, fr->local_vars[i].saved_value, 1);
 			free(fr->local_vars[i].saved_value);
@@ -553,7 +522,6 @@ filson_call_function(const char *name, char **args)
 {
 	char *body;
 	struct filson_param_frame *frame;
-	int i;
 	int argc;
 
 	body = filson_lookup_function(name);
@@ -568,14 +536,14 @@ filson_call_function(const char *name, char **args)
 		return 1;
 	}
 	frame = &filson_call_stack[filson_call_depth];
-	for (i = 0; i < FILSON_MAX_POSPARAMS; i++) {
+	for (int i = 0; i < FILSON_MAX_POSPARAMS; i++) {
 		frame->params[i] = NULL;
 	}
 	frame->return_value = 0;
 	frame->local_count = 0;
 	argc = 0;
 	frame->params[argc++] = strdup(name);
-	for (i = 1; args[i] != NULL && argc < FILSON_MAX_POSPARAMS; i++) {
+	for (int i = 1; args[i] != NULL && argc < FILSON_MAX_POSPARAMS; i++) {
 		frame->params[argc++] = strdup(args[i]);
 	}
 	frame->count = argc;
@@ -588,7 +556,7 @@ filson_call_function(const char *name, char **args)
 		extern int filson_last_exit_status;
 		rv = frame->return_value;
 		filson_call_depth--;
-		for (i = 0; i < frame->count; i++) {
+		for (int i = 0; i < frame->count; i++) {
 			free(frame->params[i]);
 			frame->params[i] = NULL;
 		}
