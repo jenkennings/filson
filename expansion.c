@@ -617,46 +617,200 @@ filson_tilde_expand(const char *str)
 	return result;
 }
 
+static int
+filson_esv_realloc(char **out, int j, int needed, int input_len)
+{
+	char *tmp;
+	if (j + needed <= input_len * 2)
+		return 1;
+	tmp = realloc(*out, j + needed + 256);
+	if (tmp == NULL) return 0;
+	*out = tmp;
+	return 1;
+}
+
+static int
+filson_esv_dollar_brace(const char *str, int i, char **out, int *j_p,
+    int input_len)
+{
+	int close_pos = filson_brace_end(str, i + 2);
+	char *expanded_val;
+	int val_len;
+
+	if (close_pos < 0)
+		return 0;
+	expanded_val = filson_expand_brace_expr(str + i + 2, close_pos - (i + 2));
+	if (expanded_val == NULL)
+		return close_pos;
+	val_len = strlen(expanded_val);
+	if (!filson_esv_realloc(out, *j_p, val_len, input_len)) {
+		free(expanded_val);
+		return -1;
+	}
+	strcpy(*out + *j_p, expanded_val);
+	*j_p += val_len;
+	free(expanded_val);
+	return close_pos;
+}
+
+static int
+filson_esv_dollar_name(const char *str, int i, char **out, int *j_p,
+    int input_len)
+{
+	int var_len = 0;
+	char *var_name, *var_value;
+
+	while (str[i + 1 + var_len] != '\0' &&
+	    ((str[i + 1 + var_len] >= 'a' && str[i + 1 + var_len] <= 'z') ||
+	    (str[i + 1 + var_len] >= 'A' && str[i + 1 + var_len] <= 'Z') ||
+	    (str[i + 1 + var_len] >= '0' && str[i + 1 + var_len] <= '9') ||
+	    str[i + 1 + var_len] == '_'))
+		var_len++;
+	var_name = malloc(var_len + 1);
+	if (var_name == NULL)
+		return 0;
+	memcpy(var_name, &str[i + 1], var_len);
+	var_name[var_len] = '\0';
+	var_value = getenv(var_name);
+	free(var_name);
+	if (var_value != NULL) {
+		int val_len = strlen(var_value);
+		if (!filson_esv_realloc(out, *j_p, val_len, input_len))
+			return -1;
+		strcpy(*out + *j_p, var_value);
+		*j_p += val_len;
+	}
+	return i + var_len;
+}
+
+static int
+filson_esv_dollar_num(const char *str, int i, char **out, int *j_p,
+    int input_len)
+{
+	char *pval = filson_get_pospar(str[i + 1] - '0');
+	int val_len;
+
+	if (pval != NULL) {
+		if ((unsigned char)pval[0] == 0x01 || (unsigned char)pval[0] == 0x02)
+			pval++;
+		val_len = strlen(pval);
+		if (!filson_esv_realloc(out, *j_p, val_len, input_len))
+			return -1;
+		strcpy(*out + *j_p, pval);
+		*j_p += val_len;
+	}
+	return i + 1;
+}
+
+static int
+filson_esv_dollar_special(const char *str, int i, char **out, int *j_p,
+    int input_len)
+{
+	char num_buf[32];
+	int val_len;
+	extern int filson_last_exit_status;
+
+	if (str[i + 1] == '?')
+		snprintf(num_buf, sizeof(num_buf), "%d", filson_last_exit_status);
+	else if (str[i + 1] == '$')
+		snprintf(num_buf, sizeof(num_buf), "%d", (int)getpid());
+	else
+		snprintf(num_buf, sizeof(num_buf), "%d", filson_get_pospar_count());
+	val_len = strlen(num_buf);
+	if (!filson_esv_realloc(out, *j_p, val_len, input_len))
+		return -1;
+	strcpy(*out + *j_p, num_buf);
+	*j_p += val_len;
+	return i + 1;
+}
+
+static int
+filson_esv_dollar_at(int i, char **out, int *j_p, int input_len)
+{
+	int k, count, val_len;
+	const char *ifs_sep;
+	char sep_char;
+	char *pval;
+
+	ifs_sep = getenv("IFS");
+	sep_char = (ifs_sep && ifs_sep[0]) ? ifs_sep[0] : ' ';
+	count = filson_get_pospar_count();
+	for (k = 1; k <= count; k++) {
+		pval = filson_get_pospar(k);
+		if (pval == NULL) continue;
+		if ((unsigned char)pval[0] == 0x01 || (unsigned char)pval[0] == 0x02)
+			pval++;
+		val_len = strlen(pval);
+		if (!filson_esv_realloc(out, *j_p, val_len + 2, input_len))
+			return -1;
+		if (k > 1)
+			(*out)[(*j_p)++] = sep_char;
+		strcpy(*out + *j_p, pval);
+		*j_p += val_len;
+	}
+	return i + 1;
+}
+
+static int
+filson_esv_dollar_arith(const char *str, int i, char **out, int *j_p,
+    int input_len)
+{
+	int d, close_p, expr_len, rlen;
+	char *arith_expr, *arith_expanded, result_buf[64];
+	long arith_result;
+
+	d = 1;
+	close_p = i + 3;
+	while (str[close_p] != '\0' && d > 0) {
+		if (str[close_p] == '(') d++;
+		else if (str[close_p] == ')') d--;
+		if (d > 0) close_p++;
+	}
+	if (d != 0 || str[close_p + 1] != ')')
+		return 0;
+	expr_len = close_p - (i + 3);
+	arith_expr = malloc(expr_len + 1);
+	if (arith_expr == NULL)
+		return 0;
+	memcpy(arith_expr, str + i + 3, expr_len);
+	arith_expr[expr_len] = '\0';
+	arith_expanded = filson_expand_string_variables(arith_expr);
+	arith_result = filson_evaluate_arithmetic(
+	    arith_expanded != arith_expr ? arith_expanded : arith_expr);
+	if (arith_expanded != arith_expr) free(arith_expanded);
+	free(arith_expr);
+	snprintf(result_buf, sizeof(result_buf), "%ld", arith_result);
+	rlen = strlen(result_buf);
+	if (!filson_esv_realloc(out, *j_p, rlen, input_len))
+		return -1;
+	strcpy(*out + *j_p, result_buf);
+	*j_p += rlen;
+	return close_p + 1;
+}
+
 char *
 filson_expand_string_variables(const char *str)
 {
-	int i;
-	int j;
-	int input_len;
-	char *output;
-	char *var_name;
-	char *var_value;
-	int var_len;
-	int expansion_found;
+	int i, j, input_len, expansion_found, local_in_dq, new_i;
+	char *output, *result_inner;
 
-	if (str == NULL) {
+	if (str == NULL)
 		return strdup("");
-	}
 	if ((unsigned char)str[0] == 0x01)
 		return strdup(str + 1);
 	if ((unsigned char)str[0] == 0x02) {
-		int save_dq;
-		const char *inner;
-		char *result_inner;
-
-		save_dq = filson_in_dquote_context;
+		int save_dq = filson_in_dquote_context;
 		filson_in_dquote_context = 1;
-		inner = str + 1;
-		result_inner = filson_expand_string_variables(inner);
+		result_inner = filson_expand_string_variables(str + 1);
 		filson_in_dquote_context = save_dq;
-		if (result_inner == inner)
-			result_inner = strdup(inner);
-		return result_inner;
+		return (result_inner == str + 1) ? strdup(str + 1) : result_inner;
 	}
 	expansion_found = 0;
 	input_len = strlen(str);
 	output = malloc(input_len * 2 + 1);
-	if (output == NULL) {
+	if (output == NULL)
 		return (char *)str;
-	}
-	j = 0;
-	{
-	int local_in_dq = 0;
+	j = 0; local_in_dq = 0;
 	for (i = 0; str[i] != '\0'; i++) {
 		if ((unsigned char)str[i] == 0x05) {
 			expansion_found = 1;
@@ -668,237 +822,31 @@ filson_expand_string_variables(const char *str)
 			continue;
 		}
 		if (str[i] == '$' && str[i + 1] != '\0') {
-			if (str[i + 1] == '{') {
-				int close_pos = filson_brace_end(str, i + 2);
-				if (close_pos >= 0) {
-					int inner_len = close_pos - (i + 2);
-					char *expanded_val = filson_expand_brace_expr(str + i + 2, inner_len);
-					if (expanded_val != NULL) {
-						int val_len = strlen(expanded_val);
-						if (j + val_len >= input_len * 2) {
-							output = realloc(output, j + val_len + 256);
-							if (output == NULL) {
-								free(expanded_val);
-								return (char *)str;
-							}
-						}
-						strcpy(&output[j], expanded_val);
-						j += val_len;
-						free(expanded_val);
-						expansion_found = 1;
-					}
-					i = close_pos;
-					continue;
-				}
-			} else if ((str[i + 1] >= 'a' && str[i + 1] <= 'z') ||
-			    (str[i + 1] >= 'A' && str[i + 1] <= 'Z') ||
-			    str[i + 1] == '_') {
-				var_len = 0;
-				while (str[i + 1 + var_len] != '\0' &&
-				       ((str[i + 1 + var_len] >= 'a' && str[i + 1 + var_len] <= 'z') ||
-				       (str[i + 1 + var_len] >= 'A' && str[i + 1 + var_len] <= 'Z') ||
-				       (str[i + 1 + var_len] >= '0' && str[i + 1 + var_len] <= '9') ||
-				       str[i + 1 + var_len] == '_')) {
-					var_len++;
-				}
-				var_name = malloc(var_len + 1);
-				if (var_name != NULL) {
-					memcpy(var_name, &str[i + 1], var_len);
-					var_name[var_len] = '\0';
-					var_value = getenv(var_name);
-					if (var_value != NULL) {
-						int val_len;
-
-						val_len = strlen(var_value);
-						if (j + val_len > input_len * 2) {
-							output = realloc(output, j + val_len + 256);
-							if (output == NULL) {
-								free(var_name);
-								return (char *)str;
-							}
-						}
-						strcpy(&output[j], var_value);
-						j += val_len;
-					}
-					expansion_found = 1;
-					i += var_len;
-					free(var_name);
-					continue;
-				}
-			} else if (str[i + 1] >= '0' && str[i + 1] <= '9') {
-				char *pval;
-				int val_len;
-
-				pval = filson_get_pospar(str[i + 1] - '0');
-				if (pval != NULL) {
-					if ((unsigned char)pval[0] == 0x01 || (unsigned char)pval[0] == 0x02)
-						pval++;
-					val_len = strlen(pval);
-					if (j + val_len > input_len * 2) {
-						output = realloc(output, j + val_len + 256);
-						if (output == NULL) {
-							return (char *)str;
-						}
-					}
-					strcpy(&output[j], pval);
-					j += val_len;
-				}
-				expansion_found = 1;
-				i++;
-				continue;
-			} else if (str[i + 1] == '?') {
-				char num_buf[16];
-				int val_len;
-				extern int filson_last_exit_status;
-
-				snprintf(num_buf, sizeof(num_buf), "%d", filson_last_exit_status);
-				val_len = strlen(num_buf);
-				if (j + val_len > input_len * 2) {
-					output = realloc(output, j + val_len + 256);
-					if (output == NULL) {
-						return (char *)str;
-					}
-				}
-				strcpy(&output[j], num_buf);
-				j += val_len;
-				expansion_found = 1;
-				i++;
-				continue;
-			} else if (str[i + 1] == '$') {
-				char num_buf[16];
-				int val_len;
-
-				snprintf(num_buf, sizeof(num_buf), "%d", (int)getpid());
-				val_len = strlen(num_buf);
-				if (j + val_len > input_len * 2) {
-					output = realloc(output, j + val_len + 256);
-					if (output == NULL) {
-						return (char *)str;
-					}
-				}
-				strcpy(&output[j], num_buf);
-				j += val_len;
-				expansion_found = 1;
-				i++;
-				continue;
-			} else if (str[i + 1] == '#') {
-				char num_buf[16];
-				int pcount;
-				int val_len;
-
-				pcount = filson_get_pospar_count();
-				snprintf(num_buf, sizeof(num_buf), "%d", pcount);
-				val_len = strlen(num_buf);
-				if (j + val_len > input_len * 2) {
-					output = realloc(output, j + val_len + 256);
-					if (output == NULL) {
-						return (char *)str;
-					}
-				}
-				strcpy(&output[j], num_buf);
-				j += val_len;
-				expansion_found = 1;
-				i++;
-				continue;
-			} else if (str[i + 1] == '@' || str[i + 1] == '*') {
-				int k;
-				int count;
-				const char *ifs_sep;
-				char sep_char;
-
-				ifs_sep = getenv("IFS");
-				sep_char = (ifs_sep != NULL && ifs_sep[0] != '\0') ? ifs_sep[0] : ' ';
-				count = filson_get_pospar_count();
-				for (k = 1; k <= count; k++) {
-					char *pval;
-					int val_len;
-
-					pval = filson_get_pospar(k);
-					if (pval == NULL) {
-						continue;
-					}
-					if ((unsigned char)pval[0] == 0x01 || (unsigned char)pval[0] == 0x02)
-						pval++;
-					val_len = strlen(pval);
-					if (j + val_len + 2 > input_len * 2) {
-						output = realloc(output, j + val_len + 256);
-						if (output == NULL) {
-							return (char *)str;
-						}
-					}
-					if (k > 1) {
-						output[j++] = sep_char;
-					}
-					strcpy(&output[j], pval);
-					j += val_len;
-				}
-				expansion_found = 1;
-				i++;
-				continue;
-			} else if (str[i + 1] == '(' && str[i + 2] == '(') {
-				int d;
-				int close_p;
-
-				d = 1;
-				close_p = i + 3;
-				while (str[close_p] != '\0' && d > 0) {
-					if (str[close_p] == '(')
-						d++;
-					else if (str[close_p] == ')')
-						d--;
-					if (d > 0)
-						close_p++;
-				}
-				if (d == 0 && str[close_p + 1] == ')') {
-					int expr_len;
-					char *arith_expr;
-
-					expr_len = close_p - (i + 3);
-					arith_expr = malloc(expr_len + 1);
-					if (arith_expr != NULL) {
-						char *arith_expanded;
-						long arith_result;
-						char result_buf[64];
-						int rlen;
-
-						memcpy(arith_expr, str + i + 3, expr_len);
-						arith_expr[expr_len] = '\0';
-						arith_expanded = filson_expand_string_variables(arith_expr);
-						arith_result = filson_evaluate_arithmetic(
-						    arith_expanded != arith_expr ? arith_expanded : arith_expr);
-						if (arith_expanded != arith_expr)
-							free(arith_expanded);
-						free(arith_expr);
-						snprintf(result_buf, sizeof(result_buf), "%ld", arith_result);
-						rlen = strlen(result_buf);
-						if (j + rlen >= input_len * 2) {
-							output = realloc(output, j + rlen + 256);
-							if (output == NULL)
-								return (char *)str;
-						}
-						strcpy(&output[j], result_buf);
-						j += rlen;
-						expansion_found = 1;
-					}
-					i = close_p + 1;
-					continue;
-				}
-			}
+			new_i = 0;
+			if (str[i + 1] == '{')
+				new_i = filson_esv_dollar_brace(str, i, &output, &j, input_len);
+			else if ((str[i + 1] >= 'a' && str[i + 1] <= 'z') ||
+			    (str[i + 1] >= 'A' && str[i + 1] <= 'Z') || str[i + 1] == '_')
+				new_i = filson_esv_dollar_name(str, i, &output, &j, input_len);
+			else if (str[i + 1] >= '0' && str[i + 1] <= '9')
+				new_i = filson_esv_dollar_num(str, i, &output, &j, input_len);
+			else if (str[i + 1] == '?' || str[i + 1] == '$' || str[i + 1] == '#')
+				new_i = filson_esv_dollar_special(str, i, &output, &j, input_len);
+			else if (str[i + 1] == '@' || str[i + 1] == '*')
+				new_i = filson_esv_dollar_at(i, &output, &j, input_len);
+			else if (str[i + 1] == '(' && str[i + 2] == '(')
+				new_i = filson_esv_dollar_arith(str, i, &output, &j, input_len);
+			if (new_i < 0) { free(output); return (char *)str; }
+			if (new_i > 0) { expansion_found = 1; i = new_i; continue; }
 		}
 		if (j >= input_len * 2) {
 			output = realloc(output, j + 256);
-			if (output == NULL) {
-				return (char *)str;
-			}
+			if (output == NULL) return (char *)str;
 		}
 		output[j++] = str[i];
 	}
 	output[j] = '\0';
-	}
-	if (!expansion_found) {
-		free(output);
-		return (char *)str;
-	}
+	if (!expansion_found) { free(output); return (char *)str; }
 	return output;
 }
 
