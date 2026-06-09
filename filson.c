@@ -383,8 +383,21 @@ filson_ifs_split(const char *s, char **out, int max)
 		return 0;
 	while (*p && n < max) {
 		start = p;
-		while (*p && !strchr(ifs, (unsigned char)*p))
+		while (*p && !strchr(ifs, (unsigned char)*p) &&
+		    (unsigned char)*p != 0x02)
 			p++;
+		if ((unsigned char)*p == 0x02) {
+			const char *suffix = p + 1;
+			int prefix_len = (int)(p - start);
+			int suffix_len = (int)strlen(suffix);
+			char *field = malloc(prefix_len + suffix_len + 1);
+			if (field != NULL) {
+				memcpy(field, start, prefix_len);
+				memcpy(field + prefix_len, suffix, suffix_len + 1);
+				out[n++] = field;
+			}
+			return n;
+		}
 		if (p > start) {
 			out[n++] = strndup(start, (size_t)(p - start));
 		} else {

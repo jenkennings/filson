@@ -645,20 +645,24 @@ filson_expand_command_substitutions(const char *line)
 					i = j + 1;
 					continue;
 				}
-				if (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
-					while (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
-						out_cap *= 2;
+				{
+					int tilde_esc = (cmd_out[0] == '~') ? 1 : 0;
+					if (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap) {
+						while (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap)
+							out_cap *= 2;
+						tmp = realloc(out, out_cap);
+						if (tmp == NULL) {
+							free(cmd_out);
+							free(out);
+							return NULL;
+						}
+						out = tmp;
 					}
-					tmp = realloc(out, out_cap);
-					if (tmp == NULL) {
-						free(cmd_out);
-						free(out);
-						return NULL;
-					}
-					out = tmp;
+					if (tilde_esc)
+						out[out_len++] = '\\';
+					memcpy(out + out_len, cmd_out, strlen(cmd_out));
+					out_len += strlen(cmd_out);
 				}
-				memcpy(out + out_len, cmd_out, strlen(cmd_out));
-				out_len += strlen(cmd_out);
 				free(cmd_out);
 				i = j + 1;
 				continue;
@@ -732,20 +736,24 @@ filson_expand_command_substitutions(const char *line)
 					free(out);
 					return NULL;
 				}
-				if (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
-					while (out_len + (int)strlen(cmd_out) + 1 > out_cap) {
-						out_cap *= 2;
+				{
+					int tilde_esc = (cmd_out[0] == '~') ? 1 : 0;
+					if (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap) {
+						while (out_len + (int)strlen(cmd_out) + 1 + tilde_esc > out_cap)
+							out_cap *= 2;
+						tmp = realloc(out, out_cap);
+						if (tmp == NULL) {
+							free(cmd_out);
+							free(out);
+							return NULL;
+						}
+						out = tmp;
 					}
-					tmp = realloc(out, out_cap);
-					if (tmp == NULL) {
-						free(cmd_out);
-						free(out);
-						return NULL;
-					}
-					out = tmp;
+					if (tilde_esc)
+						out[out_len++] = '\\';
+					memcpy(out + out_len, cmd_out, strlen(cmd_out));
+					out_len += strlen(cmd_out);
 				}
-				memcpy(out + out_len, cmd_out, strlen(cmd_out));
-				out_len += strlen(cmd_out);
 				free(cmd_out);
 				i = j + 1;
 				continue;

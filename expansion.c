@@ -467,7 +467,7 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 				if (result != expanded)
 					free(expanded);
 			}
-			if (word_is_quoted && filson_in_dquote_context)
+			if (word_is_quoted)
 				result = filson_make_quoted_result(result);
 		} else {
 			result = strdup(var_value);
@@ -558,7 +558,7 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 					if (result != expanded)
 						free(expanded);
 				}
-				if (word_is_quoted && filson_in_dquote_context)
+				if (word_is_quoted)
 					result = filson_make_quoted_result(result);
 			}
 		} else {
@@ -675,9 +675,16 @@ filson_expand_string_variables(const char *str)
 		return (char *)str;
 	}
 	j = 0;
+	{
+	int local_in_dq = 0;
 	for (i = 0; str[i] != '\0'; i++) {
 		if ((unsigned char)str[i] == 0x05) {
 			expansion_found = 1;
+			if (!filson_in_dquote_context) {
+				local_in_dq = !local_in_dq;
+				if (local_in_dq && j > 0)
+					output[j++] = '\x02';
+			}
 			continue;
 		}
 		if (str[i] == '$' && str[i + 1] != '\0') {
@@ -907,6 +914,7 @@ filson_expand_string_variables(const char *str)
 		output[j++] = str[i];
 	}
 	output[j] = '\0';
+	}
 	if (!expansion_found) {
 		free(output);
 		return (char *)str;

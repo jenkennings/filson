@@ -630,7 +630,7 @@ filson_split_line(char *line)
 			}
 			i++;
 		}
-		if (j == 0) {
+		if (j == 0 && !started_in_double && !started_in_single) {
 			continue;
 		}
 		tokbuf[j] = '\0';
@@ -792,6 +792,12 @@ filson_prepare_heredoc(const char *line)
 	int n;
 	int interactive;
 	char *expanded_line;
+	int dlen;
+	const char *p;
+	const char *lend;
+	const char *after_hdoc;
+	int llen;
+	char *seg;
 
 	if (!filson_heredoc_find(line, delim, &hd_start, &hd_end)) {
 		return NULL;
@@ -800,6 +806,52 @@ filson_prepare_heredoc(const char *line)
 	fd = mkstemp(filson_heredoc_tmppath);
 	if (fd < 0) {
 		return NULL;
+	}
+	if (line[hd_end] == '\n') {
+		dlen = strlen(delim);
+		p = line + hd_end + 1;
+		after_hdoc = NULL;
+		while (*p != '\0') {
+			lend = p;
+			while (*lend != '\0' && *lend != '\n')
+				lend++;
+			if ((int)(lend - p) == dlen && memcmp(p, delim, dlen) == 0) {
+				after_hdoc = (*lend == '\n') ? lend + 1 : lend;
+				break;
+			}
+			llen = (int)(lend - p);
+			seg = malloc(llen + 1);
+			if (seg != NULL) {
+				memcpy(seg, p, llen);
+				seg[llen] = '\0';
+				expanded_line = filson_expand_string_variables(seg);
+				n = strlen(expanded_line);
+				write(fd, expanded_line, n);
+				write(fd, "\n", 1);
+				if (expanded_line != seg)
+					free(expanded_line);
+				free(seg);
+			}
+			if (*lend == '\0')
+				break;
+			p = lend + 1;
+		}
+		close(fd);
+		{
+			int pfx = hd_start;
+			int tlen = strlen(filson_heredoc_tmppath);
+			int sfxlen = after_hdoc ? (int)strlen(after_hdoc) : 0;
+			new_line = malloc(pfx + 2 + tlen + sfxlen + 2);
+			if (new_line == NULL) {
+				unlink(filson_heredoc_tmppath);
+				filson_heredoc_tmppath[0] = '\0';
+				return NULL;
+			}
+			snprintf(new_line, pfx + 2 + tlen + sfxlen + 2,
+			    "%.*s< %s%s", pfx, line, filson_heredoc_tmppath,
+			    after_hdoc ? after_hdoc : "");
+		}
+		return new_line;
 	}
 	interactive = isatty(STDIN_FILENO);
 	while (1) {
