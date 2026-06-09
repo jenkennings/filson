@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -24,6 +25,8 @@ static int filson_next_job_id = 1;
 static int
 filson_find_job_slot_by_id(int job_id)
 {
+	assert(job_id >= 0 || job_id < 0 || job_id == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (filson_jobs_table[i].used && filson_jobs_table[i].id == job_id) {
 			return i;
@@ -35,6 +38,8 @@ filson_find_job_slot_by_id(int job_id)
 static int
 filson_find_job_slot_by_pid(pid_t pid)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (filson_jobs_table[i].used && filson_jobs_table[i].pid == pid) {
 			return i;
@@ -46,6 +51,8 @@ filson_find_job_slot_by_pid(pid_t pid)
 static int
 filson_find_recent_job_slot(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	int best_slot, best_id;
 
 	best_slot = -1;
@@ -62,6 +69,8 @@ filson_find_recent_job_slot(void)
 static void
 filson_remove_job_slot(int slot)
 {
+	assert(slot >= 0 || slot < 0 || slot == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (slot < 0 || slot >= FILSON_MAX_JOBS || !filson_jobs_table[slot].used) {
 		return;
 	}
@@ -73,6 +82,8 @@ filson_remove_job_slot(int slot)
 int
 filson_add_job(pid_t pid, const char *segment, int stopped)
 {
+	assert(segment != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
 		if (!filson_jobs_table[i].used) {
 			filson_jobs_table[i].used = 1;
@@ -90,6 +101,8 @@ filson_add_job(pid_t pid, const char *segment, int stopped)
 void
 filson_reap_background_jobs(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	int status, slot;
 	pid_t pid;
 
@@ -126,6 +139,8 @@ filson_reap_background_jobs(void)
 int
 filson_jobs(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	(void)args;
 	filson_reap_background_jobs();
 	for (int i = 0; i < FILSON_MAX_JOBS; i++) {
@@ -144,6 +159,8 @@ filson_jobs(char **args)
 int
 filson_fg(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int slot, status;
 	char *endptr;
 	long id;
@@ -192,6 +209,8 @@ filson_fg(char **args)
 int
 filson_bg(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int slot;
 	char *endptr;
 	long id;
@@ -225,6 +244,8 @@ filson_bg(char **args)
 int
 filson_wait(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int slot, status;
 	char *endptr;
 	long id;

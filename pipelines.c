@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -25,6 +26,8 @@ int filson_execute_and_chain(char *line);
 static char *
 filson_read_command_output(FILE *fp)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	char chunk[256];
 	char *out;
 	size_t cap, len, n;
@@ -64,6 +67,8 @@ filson_read_command_output(FILE *fp)
 static char *
 filson_run_subcommand(const char *cmd)
 {
+	assert(cmd != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int pipefd[2];
 	pid_t pid;
 	FILE *fp;
@@ -127,6 +132,8 @@ static long filson_parse_assign(const char *expr, int *pos);
 static long
 filson_pf_dollar_var(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	const char *var_value;
 	char var_name[256];
 	int var_len;
@@ -158,6 +165,8 @@ filson_pf_dollar_var(const char *expr, int *pos)
 static long
 filson_pf_paren(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char var_name[256];
 	int var_len, depth, i;
 
@@ -180,6 +189,8 @@ filson_pf_paren(const char *expr, int *pos)
 static long
 filson_pf_number(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long factor;
 
 	if (expr[*pos] == '0' && (expr[*pos + 1] == 'x' || expr[*pos + 1] == 'X')) {
@@ -215,6 +226,8 @@ filson_pf_number(const char *expr, int *pos)
 static long
 filson_pf_bare_name(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	const char *var_value;
 	char var_name[256];
 	int var_len;
@@ -237,6 +250,8 @@ filson_pf_bare_name(const char *expr, int *pos)
 static long
 filson_parse_factor(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	while (expr[*pos] == ' ' || expr[*pos] == '\t') (*pos)++;
 	if (expr[*pos] == '!') { (*pos)++; return !filson_parse_factor(expr, pos); }
 	if (expr[*pos] == '~') { (*pos)++; return ~filson_parse_factor(expr, pos); }
@@ -255,6 +270,8 @@ filson_parse_factor(const char *expr, int *pos)
 static long
 filson_parse_term(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long term;
 	long divisor;
 
@@ -288,6 +305,8 @@ filson_parse_term(const char *expr, int *pos)
 static long
 filson_parse_addexpr(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_term(expr, pos);
@@ -311,6 +330,8 @@ filson_parse_addexpr(const char *expr, int *pos)
 static long
 filson_parse_shift(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_addexpr(expr, pos);
@@ -334,6 +355,8 @@ filson_parse_shift(const char *expr, int *pos)
 static long
 filson_parse_comparison(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_shift(expr, pos);
@@ -363,6 +386,8 @@ filson_parse_comparison(const char *expr, int *pos)
 static long
 filson_parse_equality(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_comparison(expr, pos);
@@ -386,6 +411,8 @@ filson_parse_equality(const char *expr, int *pos)
 static long
 filson_parse_bitand(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_equality(expr, pos);
@@ -406,6 +433,8 @@ filson_parse_bitand(const char *expr, int *pos)
 static long
 filson_parse_bitxor(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_bitand(expr, pos);
@@ -426,6 +455,8 @@ filson_parse_bitxor(const char *expr, int *pos)
 static long
 filson_parse_bitor(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_bitxor(expr, pos);
@@ -446,6 +477,8 @@ filson_parse_bitor(const char *expr, int *pos)
 static long
 filson_parse_logand(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_bitor(expr, pos);
@@ -466,6 +499,8 @@ filson_parse_logand(const char *expr, int *pos)
 static long
 filson_parse_logor(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	long result;
 
 	result = filson_parse_logand(expr, pos);
@@ -486,6 +521,8 @@ filson_parse_logor(const char *expr, int *pos)
 static int
 filson_pa_scan_op(const char *expr, int after_var, char *assign_op_p, int *op_len_p)
 {
+	assert(expr != NULL);
+	assert(assign_op_p != NULL);
 	if (expr[after_var] == '=' && expr[after_var + 1] != '=') {
 		*assign_op_p = '='; *op_len_p = 1; return 1;
 	}
@@ -525,6 +562,8 @@ filson_pa_scan_op(const char *expr, int after_var, char *assign_op_p, int *op_le
 static long
 filson_parse_assign(const char *expr, int *pos)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char var_name[256];
 	int var_len, after_var, is_assign, op_len;
 	char assign_op;
@@ -583,6 +622,8 @@ filson_parse_assign(const char *expr, int *pos)
 long
 filson_evaluate_arithmetic(const char *expr)
 {
+	assert(expr != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int pos;
 
 	if (expr == NULL || expr[0] == '\0') {
@@ -596,6 +637,8 @@ static int
 filson_ecs_append_out(char **out_p, int *out_len_p, int *out_cap_p,
     const char *cmd_out)
 {
+	assert(out_p != NULL);
+	assert(cmd_out != NULL);
 	int tilde_esc, clen;
 	char *tmp;
 
@@ -619,6 +662,8 @@ static int
 filson_ecs_backtick(const char *line, int i, char **out_p,
     int *out_len_p, int *out_cap_p, int *new_i_p)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int j, k;
 	char *cmd, *cmd_out;
 
@@ -646,6 +691,8 @@ static int
 filson_ecs_dollar_arith(const char *line, int i, char **out_p,
     int *out_len_p, int *out_cap_p, int *new_i_p)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int j, depth, pass_len;
 	char *tmp;
 
@@ -674,6 +721,8 @@ static int
 filson_ecs_dollar_paren(const char *line, int i, char **out_p,
     int *out_len_p, int *out_cap_p, int *new_i_p)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int j, k, depth;
 	char *cmd, *cmd_out;
 
@@ -704,6 +753,8 @@ filson_ecs_dollar_paren(const char *line, int i, char **out_p,
 static char *
 filson_expand_command_substitutions(const char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *out, *tmp;
 	int i, out_cap, out_len, len, new_i, r;
 	int in_single, in_double;
@@ -751,6 +802,8 @@ filson_expand_command_substitutions(const char *line)
 static int
 filson_nso_op(const char *line, int i, char *out, int *j_p)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int j = *j_p;
 
 	if (line[i] == '&' && line[i + 1] == '&') {
@@ -796,6 +849,8 @@ filson_nso_op(const char *line, int i, char *out, int *j_p)
 char *
 filson_normalize_script_ops(const char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int i, j, len, in_single, in_double, brace_depth, new_i;
 	char *out;
 
@@ -837,6 +892,8 @@ filson_normalize_script_ops(const char *line)
 static char *
 filson_join_tokens(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int total, pos, len;
 	char *out;
 
@@ -866,6 +923,8 @@ filson_ep_child_setup(char ***argvv, int i, int stage_count, int pipe_count,
     int pipes[][2], char *infiles[], char *outfiles[], int out_append[],
     char *errfiles[], int err_append[], int err_to_out[])
 {
+	assert(argvv != NULL);
+	assert(infiles != NULL);
 	int fd;
 
 	if (i > 0) (void)dup2(pipes[i - 1][0], 0);
@@ -904,6 +963,8 @@ filson_ep_child_setup(char ***argvv, int i, int stage_count, int pipe_count,
 static int
 filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int out_append[], char *errfiles[], int err_append[], int err_to_out[], int stage_count, int background, const char *segment)
 {
+	assert(argvv != NULL);
+	assert(infiles != NULL);
 	int status, pipe_count;
 	int pipes[64][2];
 	pid_t pids[64];
@@ -962,6 +1023,8 @@ static int filson_execute_parsed_segment(char **tokens, int start, int end);
 static int
 filson_find_matching_done(char **tokens, int loop_pos, int *done_pos)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int i, depth;
 
 	depth = 1;
@@ -984,6 +1047,8 @@ filson_find_matching_done(char **tokens, int loop_pos, int *done_pos)
 static int
 filson_find_loop_do(char **tokens, int start, int end, int *do_pos)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int i, depth;
 
 	depth = 0;
@@ -1005,6 +1070,8 @@ filson_find_loop_do(char **tokens, int start, int end, int *do_pos)
 static char **
 filson_efl_collect_items(char **tokens, int item_start, int do_pos)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char **items;
 	int item_count;
 
@@ -1029,6 +1096,8 @@ filson_efl_collect_items(char **tokens, int item_start, int do_pos)
 static int
 filson_execute_for_loop(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int do_pos, body_start, body_end;
 	int var_pos, in_pos, item_start;
 	char *var_name;
@@ -1083,6 +1152,8 @@ filson_execute_for_loop(char **tokens, int start, int end)
 static int
 filson_execute_while_loop(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int do_pos, cond_start, cond_end;
 	int body_start, body_end;
 	int status;
@@ -1137,6 +1208,8 @@ filson_execute_while_loop(char **tokens, int start, int end)
 static int
 filson_execute_until_loop(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int do_pos, cond_start, cond_end;
 	int body_start, body_end;
 	int status;
@@ -1180,12 +1253,16 @@ filson_execute_until_loop(char **tokens, int start, int end)
 static int
 filson_string_matches_pattern(char *str, char *pattern)
 {
+	assert(str != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	return fnmatch(pattern, str, 0) == 0;
 }
 
 static int
 filson_find_matching_esac(char **tokens, int case_pos, int *esac_pos)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int i, depth;
 
 	depth = 1;
@@ -1208,6 +1285,8 @@ filson_find_matching_esac(char **tokens, int case_pos, int *esac_pos)
 static int
 filson_execute_case_stmt(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int i, matched;
 	char *case_var, *pattern;
 	char *var_value;
@@ -1253,6 +1332,8 @@ filson_execute_case_stmt(char **tokens, int start, int end)
 static int
 filson_find_matching_fi(char **tokens, int if_pos, int *fi_pos)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int i, depth;
 
 	depth = 1;
@@ -1275,6 +1356,8 @@ filson_find_matching_fi(char **tokens, int if_pos, int *fi_pos)
 static int
 filson_find_then_else(char **tokens, int start, int end, int *then_pos, int *else_pos, int *elif_pos)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	*then_pos = -1;
 	*else_pos = -1;
 	*elif_pos = -1;
@@ -1298,6 +1381,8 @@ filson_find_then_else(char **tokens, int start, int end, int *then_pos, int *els
 static int
 filson_execute_if_block(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int then_pos, else_pos, elif_pos;
 	int cond_start, cond_end;
 	int then_start, then_end;
@@ -1350,6 +1435,8 @@ static int
 filson_esr_file_redir(char **tokens, int i, int end, const char *op_name,
     char **files, int *append, int append_val)
 {
+	assert(tokens != NULL);
+	assert(op_name != NULL);
 	if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
 		fprintf(stderr, "filson: syntax error near unexpected token `%s`\n", op_name);
 		filson_last_cmd_success = 0;
@@ -1366,6 +1453,8 @@ filson_eps_scan_redir(char **tokens, int start, int end, int *j_p,
     char *errfiles[], int err_append[], int err_to_out[],
     char *argvbuf[][256])
 {
+	assert(tokens != NULL);
+	assert(infiles != NULL);
 	*j_p = 0;
 	for (int i = start; i < end; i++) {
 		int ni;
@@ -1422,6 +1511,8 @@ filson_eps_single_redir(char **argvv[], int pos[],
     char *errfiles[], int err_append[], int err_to_out[],
     char *segment)
 {
+	assert(argvv != NULL);
+	assert(infiles != NULL);
 	int saved_in, saved_out, saved_err, k;
 	int fd_in, fd_out, fd_err, redir_ok;
 
@@ -1464,6 +1555,8 @@ static int
 filson_eps_count_stages(char **tokens, int start, int end,
     int *stage_count_p, int *has_redir_p)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	*stage_count_p = 1;
 	*has_redir_p = 0;
 	for (int i = start; i < end; i++) {
@@ -1492,6 +1585,8 @@ filson_eps_count_stages(char **tokens, int start, int end,
 static int
 filson_eps_fastpath(char **tokens, int start, int end, int background)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *segment;
 	char *saved_end;
 	int k, argc;
@@ -1528,6 +1623,8 @@ filson_eps_fastpath(char **tokens, int start, int end, int background)
 static int
 filson_execute_parsed_segment(char **tokens, int start, int end)
 {
+	assert(tokens != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int j, k;
 	int background, stage_count, has_redir;
 	int pos[64];
@@ -1590,6 +1687,8 @@ filson_execute_parsed_segment(char **tokens, int start, int end)
 static inline int
 filson_iskw(const char *s, int i, const char *k, int n)
 {
+	assert(s != NULL);
+	assert(k != NULL);
 	return strncmp(s + i, k, n) == 0 &&
 	    (s[i + n] == ' ' || s[i + n] == ';' || s[i + n] == '\0');
 }

@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -10,6 +11,8 @@ extern int filson_last_cmd_success;
 static int
 filson_test_file_exists(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	struct stat sb;
 
 	return stat(path, &sb) == 0;
@@ -18,6 +21,8 @@ filson_test_file_exists(const char *path)
 static int
 filson_test_is_file(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	struct stat sb;
 
 	if (stat(path, &sb) != 0) {
@@ -29,6 +34,8 @@ filson_test_is_file(const char *path)
 static int
 filson_test_is_dir(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	struct stat sb;
 
 	if (stat(path, &sb) != 0) {
@@ -40,24 +47,32 @@ filson_test_is_dir(const char *path)
 static int
 filson_test_is_readable(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	return access(path, R_OK) == 0;
 }
 
 static int
 filson_test_is_writable(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	return access(path, W_OK) == 0;
 }
 
 static int
 filson_test_is_executable(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	return access(path, X_OK) == 0;
 }
 
 static int
 filson_test_string_equal(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	if (s1 == NULL || s2 == NULL) {
 		return 0;
 	}
@@ -67,6 +82,8 @@ filson_test_string_equal(const char *s1, const char *s2)
 static int
 filson_test_string_not_equal(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	if (s1 == NULL || s2 == NULL) {
 		return 1;
 	}
@@ -76,18 +93,24 @@ filson_test_string_not_equal(const char *s1, const char *s2)
 static int
 filson_test_string_empty(const char *s)
 {
+	assert(s != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	return s == NULL || s[0] == '\0';
 }
 
 static int
 filson_test_string_not_empty(const char *s)
 {
+	assert(s != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	return s != NULL && s[0] != '\0';
 }
 
 static int
 filson_test_int_equal(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	long v1, v2;
 	char *endp1, *endp2;
 
@@ -105,6 +128,8 @@ filson_test_int_equal(const char *s1, const char *s2)
 static int
 filson_test_int_not_equal(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	long v1, v2;
 	char *endp1, *endp2;
 
@@ -122,6 +147,8 @@ filson_test_int_not_equal(const char *s1, const char *s2)
 static int
 filson_test_int_less_than(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	long v1, v2;
 	char *endp1, *endp2;
 
@@ -139,6 +166,8 @@ filson_test_int_less_than(const char *s1, const char *s2)
 static int
 filson_test_int_less_equal(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	long v1, v2;
 	char *endp1, *endp2;
 
@@ -156,6 +185,8 @@ filson_test_int_less_equal(const char *s1, const char *s2)
 static int
 filson_test_int_greater_than(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	long v1, v2;
 	char *endp1, *endp2;
 
@@ -173,6 +204,8 @@ filson_test_int_greater_than(const char *s1, const char *s2)
 static int
 filson_test_int_greater_equal(const char *s1, const char *s2)
 {
+	assert(s1 != NULL);
+	assert(s2 != NULL);
 	long v1, v2;
 	char *endp1, *endp2;
 
@@ -190,6 +223,8 @@ filson_test_int_greater_equal(const char *s1, const char *s2)
 int
 filson_test(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int result;
 	int i;
 	int argc;

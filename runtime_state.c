@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -51,6 +52,8 @@ static int filson_global_pospar_count = 0;
 char *
 filson_lookup_alias(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	if (name == NULL) {
 		return NULL;
 	}
@@ -65,6 +68,8 @@ filson_lookup_alias(const char *name)
 void
 filson_set_alias(const char *name, const char *value)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	int empty_slot;
 
 	if (name == NULL || value == NULL) {
@@ -104,6 +109,8 @@ filson_set_alias(const char *name, const char *value)
 void
 filson_print_aliases(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	struct filson_alias_entry sorted[FILSON_MAX_ALIASES];
 	int count;
 
@@ -151,6 +158,8 @@ filson_print_aliases(void)
 void
 filson_print_one_alias(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
 			const char *v = filson_aliases[i].value;
@@ -183,6 +192,8 @@ filson_print_one_alias(const char *name)
 int
 filson_remove_alias(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used && strcmp(filson_aliases[i].name, name) == 0) {
 			filson_aliases[i].used = 0;
@@ -199,6 +210,8 @@ filson_remove_alias(const char *name)
 void
 filson_remove_all_aliases(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < FILSON_MAX_ALIASES; i++) {
 		if (filson_aliases[i].used) {
 			filson_aliases[i].used = 0;
@@ -212,6 +225,8 @@ filson_remove_all_aliases(void)
 void
 filson_define_function(const char *name, const char *body)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	int empty_slot;
 
 	if (name == NULL || body == NULL) {
@@ -250,6 +265,8 @@ filson_define_function(const char *name, const char *body)
 char *
 filson_lookup_function(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	if (name == NULL) {
 		return NULL;
 	}
@@ -264,6 +281,8 @@ filson_lookup_function(const char *name)
 int
 filson_unset_function(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	if (name == NULL) {
 		return 0;
 	}
@@ -281,6 +300,8 @@ filson_unset_function(const char *name)
 void
 filson_print_function_definition(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	char *body;
 
 	body = filson_lookup_function(name);
@@ -294,6 +315,8 @@ filson_print_function_definition(const char *name)
 void
 filson_print_all_function_definitions(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used) {
 			printf("%s() {\n", filson_functions[i].name);
@@ -306,6 +329,8 @@ filson_print_all_function_definitions(void)
 void
 filson_print_all_function_names(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used) {
 			printf("%s\n", filson_functions[i].name);
@@ -316,6 +341,8 @@ filson_print_all_function_names(void)
 void
 filson_print_all_function_declarations(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < FILSON_MAX_FUNCTIONS; i++) {
 		if (filson_functions[i].used) {
 			printf("declare -f %s\n", filson_functions[i].name);
@@ -326,6 +353,8 @@ filson_print_all_function_declarations(void)
 char *
 filson_get_pospar(int idx)
 {
+	assert(idx >= 0 || idx < 0 || idx == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	struct filson_param_frame *fr;
 
 	if (idx == 0) {
@@ -347,6 +376,8 @@ filson_get_pospar(int idx)
 int
 filson_get_pospar_count(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth == 0) {
@@ -362,6 +393,8 @@ filson_get_pospar_count(void)
 int
 filson_shift_posparams(int n)
 {
+	assert(n >= 0 || n < 0 || n == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	struct filson_param_frame *fr;
 
 	if (!filson_has_active_function()) {
@@ -390,12 +423,16 @@ filson_shift_posparams(int n)
 int
 filson_has_active_function(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	return filson_call_depth > 0 || filson_dot_depth > 0;
 }
 
 void
 filson_set_posparams(char **args, int count)
 {
+	assert(args != NULL);
+	assert(count >= 0);
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth > 0) {
@@ -425,6 +462,8 @@ filson_set_posparams(char **args, int count)
 void
 filson_declare_local(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth == 0 || name == NULL) {
@@ -451,6 +490,8 @@ filson_declare_local(const char *name)
 static void
 filson_restore_locals(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	struct filson_param_frame *fr;
 
 	if (filson_call_depth == 0) {
@@ -472,6 +513,8 @@ filson_restore_locals(void)
 int
 filson_return_from_function(int ret_value)
 {
+	assert(ret_value >= 0 || ret_value < 0 || ret_value == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (filson_call_depth == 0 && filson_dot_depth == 0) {
 		return 0;
 	}
@@ -486,6 +529,8 @@ filson_return_from_function(int ret_value)
 int
 filson_consume_return_value(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	int rv;
 
 	if (!filson_function_return_requested) {
@@ -506,6 +551,8 @@ filson_consume_return_value(void)
 void
 filson_push_source_frame(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	filson_dot_depth++;
 	filson_function_return_requested = 0;
 }
@@ -513,6 +560,8 @@ filson_push_source_frame(void)
 void
 filson_pop_source_frame(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	if (filson_dot_depth > 0)
 		filson_dot_depth--;
 }
@@ -520,6 +569,8 @@ filson_pop_source_frame(void)
 int
 filson_call_function(const char *name, char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char *body;
 	struct filson_param_frame *frame;
 	int argc;

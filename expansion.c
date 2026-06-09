@@ -1,3 +1,5 @@
+#include <assert.h>
+extern int filson_last_cmd_success;
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -16,6 +18,8 @@ static int filson_in_dquote_context = 0;
 static char *
 filson_make_quoted_result(char *r)
 {
+	assert(r != NULL);
+	assert(sizeof(char) == 1);
 	char *q;
 
 	if (r == NULL)
@@ -31,6 +35,8 @@ filson_make_quoted_result(char *r)
 static char *
 filson_unescape_word(const char *s)
 {
+	assert(s != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *out;
 	int j;
 
@@ -51,6 +57,8 @@ filson_unescape_word(const char *s)
 static char *
 filson_unescape_dquote_word(const char *s)
 {
+	assert(s != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *out;
 	int j;
 
@@ -78,6 +86,8 @@ static void
 filson_ep_append(char **out, int *out_len, int *out_cap,
     const char *val, int val_len, int escape_glob)
 {
+	assert(out != NULL);
+	assert(val != NULL);
 	if (*out_len + val_len * 2 + 4 > *out_cap) {
 		*out_cap = *out_len + val_len * 2 + 64;
 		*out = realloc(*out, *out_cap);
@@ -101,6 +111,8 @@ static int
 filson_ep_try_brace(const char *pat, int pat_len, int i,
     char **out, int *out_len, int *out_cap, int in_dq)
 {
+	assert(pat != NULL);
+	assert(out != NULL);
 	int bend, inner_copy_len, vval_len;
 	char *brace_result, *inner_copy;
 
@@ -127,6 +139,8 @@ filson_ep_try_brace(const char *pat, int pat_len, int i,
 static int
 filson_ep_scan_name(const char *pat, int pat_len, int i)
 {
+	assert(pat != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int vn_len = 0;
 	if (i + 1 >= pat_len)
 		return 0;

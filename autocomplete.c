@@ -1,3 +1,5 @@
+#include <assert.h>
+extern int filson_last_cmd_success;
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,6 +11,8 @@
 static void
 filson_print_safe(const char *s)
 {
+	assert(s != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	while (*s != '\0') {
 		unsigned char c;
 
@@ -33,6 +37,8 @@ struct filson_match_list {
 static int
 filson_starts_with(const char *s, const char *prefix)
 {
+	assert(s != NULL);
+	assert(prefix != NULL);
 	while (*prefix != '\0') {
 		if (*s == '\0' || *s != *prefix) {
 			return 0;
@@ -46,6 +52,8 @@ filson_starts_with(const char *s, const char *prefix)
 static int
 filson_is_dir(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	struct stat st;
 
 	if (stat(path, &st) != 0) {
@@ -57,6 +65,8 @@ filson_is_dir(const char *path)
 static int
 filson_is_executable(const char *path)
 {
+	assert(path != NULL);
+	assert(path[0] != '\0');
 	struct stat st;
 
 	if (stat(path, &st) != 0) {
@@ -71,6 +81,8 @@ filson_is_executable(const char *path)
 static int
 filson_match_exists(struct filson_match_list *matches, const char *value)
 {
+	assert(value != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	for (int i = 0; i < matches->count; i++) {
 		if (strcmp(matches->items[i], value) == 0) {
 			return 1;
@@ -82,6 +94,8 @@ filson_match_exists(struct filson_match_list *matches, const char *value)
 static void
 filson_add_match(struct filson_match_list *matches, const char *value)
 {
+	assert(value != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char **tmp;
 
 	if (filson_match_exists(matches, value)) {
@@ -104,6 +118,8 @@ filson_add_match(struct filson_match_list *matches, const char *value)
 static void
 filson_free_matches(struct filson_match_list *matches)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < matches->count; i++) {
 		free(matches->items[i]);
 	}
@@ -116,6 +132,8 @@ filson_free_matches(struct filson_match_list *matches)
 static int
 filson_match_cmp(const void *a, const void *b)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	const char *sa;
 	const char *sb;
 
@@ -127,6 +145,8 @@ filson_match_cmp(const void *a, const void *b)
 static void
 filson_sort_matches(struct filson_match_list *matches)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	if (matches->count > 1) {
 		qsort(matches->items, (size_t)matches->count, sizeof(char *), filson_match_cmp);
 	}
@@ -135,6 +155,8 @@ filson_sort_matches(struct filson_match_list *matches)
 static int
 filson_common_prefix_len(struct filson_match_list *matches)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	int n;
 
 	if (matches->count == 0) {
@@ -163,6 +185,8 @@ static void
 filson_replace_span(char **buffer, int *bufsize, int *position, int start, int end,
 	const char *replacement)
 {
+	assert(buffer != NULL);
+	assert(replacement != NULL);
 	int replacement_len;
 	int tail_len;
 	int needed;
@@ -190,6 +214,8 @@ static void
 filson_collect_dir_matches(const char *dir_for_open, const char *display_prefix,
 	const char *name_prefix, struct filson_match_list *matches)
 {
+	assert(name_prefix != NULL);
+	assert(name_prefix[0] != '\0');
 	DIR *dir;
 	struct dirent *entry;
 	char candidate[4096];
@@ -225,6 +251,8 @@ filson_collect_dir_matches(const char *dir_for_open, const char *display_prefix,
 static void
 filson_collect_path_exec_matches(const char *prefix, struct filson_match_list *matches)
 {
+	assert(prefix != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *path;
 	char *path_copy;
 	char *dir;
@@ -265,6 +293,8 @@ static void
 filson_collect_builtin_matches(const char *prefix, const char **builtins, int builtin_count,
 	struct filson_match_list *matches)
 {
+	assert(prefix != NULL);
+	assert(builtins != NULL);
 	for (int i = 0; i < builtin_count; i++) {
 		if (filson_starts_with(builtins[i], prefix)) {
 			filson_add_match(matches, builtins[i]);
@@ -276,6 +306,8 @@ static void
 filson_collect_completions(const char *token, int command_pos,
 	const char **builtins, int builtin_count, struct filson_match_list *matches)
 {
+	assert(token != NULL);
+	assert(builtins != NULL);
 	const char *slash;
 	char dir_open[4096];
 	char display_prefix[4096];
@@ -315,6 +347,8 @@ static void
 filson_hac_display_matches(struct filson_match_list *matches, const char *buf,
     void (*refresh_line)(const char *))
 {
+	assert(buf != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	printf("\n");
 	for (int i = 0; i < matches->count; i++) {
 		filson_print_safe(matches->items[i]);
@@ -329,6 +363,8 @@ void
 filson_handle_autocomplete(char **buffer, int *bufsize, int *position,
 	const char **builtins, int builtin_count, void (*refresh_line)(const char *))
 {
+	assert(buffer != NULL);
+	assert(builtins != NULL);
 	int token_start, token_end, command_pos, common_len;
 	char token[4096], partial[4096];
 	struct filson_match_list matches;

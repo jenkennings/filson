@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <sys/select.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -70,6 +71,8 @@ int filson_funcdef_parse(const char *line, char *name_out, int name_max,
 static void
 filson_print_startup_banner(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	int use_color;
 	char *no_color;
 
@@ -108,6 +111,8 @@ filson_print_startup_banner(void)
 static void
 filson_refresh_line(const char *buffer)
 {
+	assert(buffer != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	printf("\r%s%s\033[K", FILSON_PROMPT, buffer);
 	(void)fflush(stdout);
 }
@@ -115,6 +120,8 @@ filson_refresh_line(const char *buffer)
 static void
 filson_refresh_line_cursor(const char *buffer, int cursor)
 {
+	assert(buffer != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int len;
 	int move_left;
 
@@ -130,6 +137,8 @@ filson_refresh_line_cursor(const char *buffer, int cursor)
 static void
 filson_set_kill_buffer(char **kill_buffer, const char *src, int len)
 {
+	assert(kill_buffer != NULL);
+	assert(src != NULL);
 	char *next;
 
 	if (kill_buffer == NULL) {
@@ -154,6 +163,8 @@ static void
 filson_toggle_prefix(char **buffer, int *bufsize, int *position, int *cursor,
     const char *prefix)
 {
+	assert(buffer != NULL);
+	assert(prefix != NULL);
 	int prefix_len;
 
 	if (buffer == NULL || *buffer == NULL || bufsize == NULL || position == NULL ||
@@ -202,6 +213,8 @@ struct filson_rl {
 static void
 filson_rls_grow(struct filson_rl *s, int needed)
 {
+	assert(needed >= 0 || needed < 0 || needed == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	while (s->pos + needed >= s->bufsize - 1) {
 		s->bufsize += FILSON_RL_BUFSIZE;
 		s->buf = realloc(s->buf, s->bufsize);
@@ -212,6 +225,8 @@ filson_rls_grow(struct filson_rl *s, int needed)
 static void
 filson_rls_load_hist(struct filson_rl *s, int idx)
 {
+	assert(idx >= 0 || idx < 0 || idx == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	const char *entry;
 
 	if (idx >= 0 && idx < s->hist_count) {
@@ -233,6 +248,8 @@ filson_rls_load_hist(struct filson_rl *s, int idx)
 static int
 filson_rls_esc_csi(struct filson_rl *s, int esc2)
 {
+	assert(esc2 >= 0 || esc2 < 0 || esc2 == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (esc2 == FILSON_ESC_RIGHT && s->cur < s->pos) {
 		s->cur++;
 		filson_refresh_line_cursor(s->buf, s->cur);
@@ -253,6 +270,8 @@ filson_rls_esc_csi(struct filson_rl *s, int esc2)
 static int
 filson_rls_escape(struct filson_rl *s)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	int esc1, esc2;
 	char pwd[256];
 	int pwd_len;
@@ -291,6 +310,8 @@ filson_rls_escape(struct filson_rl *s)
 static int
 filson_rls_ctrl(struct filson_rl *s, int key)
 {
+	assert(key >= 0 || key < 0 || key == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int start, ylen;
 
 	switch (key) {
@@ -351,6 +372,8 @@ filson_rls_ctrl(struct filson_rl *s, int key)
 static void
 filson_rls_init(struct filson_rl *s, struct termios *oldt_p)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	struct termios newt;
 
 	s->bufsize = FILSON_RL_BUFSIZE;
@@ -373,6 +396,8 @@ filson_rls_init(struct filson_rl *s, struct termios *oldt_p)
 static int
 filson_rls_key(struct filson_rl *s, int key, struct termios *oldt_p)
 {
+	assert(key >= 0 || key < 0 || key == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (s->interactive && key == FILSON_KEY_ESCAPE) { filson_rls_escape(s); return 1; }
 	if (s->interactive && key == FILSON_KEY_TAB) {
 		filson_handle_autocomplete(&s->buf, &s->bufsize, &s->pos,
@@ -421,6 +446,8 @@ filson_rls_key(struct filson_rl *s, int key, struct termios *oldt_p)
 char *
 filson_read_line(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	struct filson_rl s;
 	struct termios oldt;
 	fd_set rfds;
@@ -451,6 +478,8 @@ filson_read_line(void)
 static void
 filson_sl_push_token(char ***tokens_p, int *pos_p, int *bufsize_p, char *tok)
 {
+	assert(tokens_p != NULL);
+	assert(tok != NULL);
 	(*tokens_p)[*pos_p] = tok;
 	(*pos_p)++;
 	if (*pos_p >= *bufsize_p) {
@@ -465,6 +494,8 @@ filson_sl_store_token(char ***tokens_p, int *pos_p, int *bufsize_p,
     char *tokbuf, int j, int started_in_single, int started_in_double,
     int unquoted_start, int eq_tilde_escaped)
 {
+	assert(tokens_p != NULL);
+	assert(tokbuf != NULL);
 	char *token_copy;
 	int eqpos;
 
@@ -504,6 +535,8 @@ filson_sl_scan_token(const char *line, int i, char *tokbuf, int tokbuf_size,
     int *unquoted_start_p, int *eq_tilde_escaped_p,
     int *started_in_single_p, int *started_in_double_p)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int j = *j_p;
 
 	while (line[i] != '\0') {
@@ -562,6 +595,8 @@ filson_sl_scan_token(const char *line, int i, char *tokbuf, int tokbuf_size,
 char **
 filson_split_line(char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int bufsize, position;
 	char **tokens;
 	char tokbuf[4096];
@@ -597,6 +632,8 @@ filson_split_line(char *line)
 static int
 filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_pos)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int in_single;
 	int in_double;
 	int arith_depth;
@@ -655,6 +692,8 @@ filson_heredoc_find(const char *line, char *delim_out, int *start_pos, int *end_
 static char *
 filson_phd_inline(const char *line, int hd_start, int hd_end, const char *delim, int fd)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *new_line, *seg, *expanded_line;
 	const char *p, *lend, *after_hdoc;
 	int dlen, llen, n;
@@ -706,6 +745,8 @@ static char *
 filson_phd_interactive(const char *line, int hd_start, int hd_end,
     const char *delim, int fd)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *body_line, *expanded_line, *new_line;
 	int interactive = isatty(STDIN_FILENO);
 	int n;
@@ -739,6 +780,8 @@ filson_phd_interactive(const char *line, int hd_start, int hd_end,
 static char *
 filson_prepare_heredoc(const char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char delim[256];
 	int hd_start, hd_end, fd;
 
@@ -754,6 +797,8 @@ filson_prepare_heredoc(const char *line)
 static const char *
 filson_fp_scan_name(const char *line, char *name_out, int name_max)
 {
+	assert(name_out != NULL);
+	assert(name_out[0] != '\0');
 	const char *p = line;
 	int name_len;
 

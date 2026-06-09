@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <sys/wait.h>
 #include <limits.h>
 #include <unistd.h>
@@ -22,6 +23,8 @@ int filson_is_valid_varname(const char *name);
 int
 filson_cd(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char prev_pwd[PATH_MAX];
 	char new_pwd[PATH_MAX];
 	const char *cur_pwd;
@@ -80,6 +83,8 @@ filson_cd(char **args)
 int
 filson_help(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char buf[4096];
 	int buf_len;
 
@@ -102,6 +107,8 @@ filson_help(char **args)
 int
 filson_exit(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	extern int filson_exit_code;
 	extern int filson_exit_called;
 	int code;
@@ -119,6 +126,8 @@ filson_exit(char **args)
 int
 filson_set(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	extern int filson_noglob;
 
 	if (args[1] != NULL && args[1][0] == '-' && args[1][1] != '\0' && args[1][1] != '-') {
@@ -174,6 +183,8 @@ filson_set(char **args)
 static int
 filson_echo_escape(const char **str_p, char *buf, int buf_len, int buf_max)
 {
+	assert(str_p != NULL);
+	assert(buf != NULL);
 	const char *str = *str_p;
 	str++;
 	switch (*str) {
@@ -209,6 +220,8 @@ filson_echo_escape(const char **str_p, char *buf, int buf_len, int buf_max)
 int
 filson_echo(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int i, eflag, nflag, first, buf_len;
 	char buf[8192];
 	const char *str;
@@ -254,6 +267,8 @@ filson_echo(char **args)
 int
 filson_pwd(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char buf[4096];
 	const char *pwd;
 
@@ -286,6 +301,8 @@ filson_pwd(char **args)
 int
 filson_clear(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	(void)args;
 	printf("\033[2J\033[H");
 	(void)fflush(stdout);
@@ -296,6 +313,8 @@ filson_clear(char **args)
 int
 filson_unset(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected argument to \"unset\"\n");
 		filson_last_cmd_success = 0;
@@ -323,6 +342,8 @@ filson_unset(char **args)
 int
 filson_export(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	const char *value;
 	char *name;
 
@@ -360,6 +381,8 @@ filson_export(char **args)
 int
 filson_type(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char *path, *token, *path_copy, *full_path;
 	size_t needed;
 
@@ -418,6 +441,8 @@ filson_type(char **args)
 int
 filson_alias(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char *eq;
 	char *name;
 	char *value;
@@ -463,6 +488,8 @@ filson_alias(char **args)
 int
 filson_unalias(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int found;
 
 	if (args[1] == NULL) {
@@ -490,6 +517,8 @@ filson_unalias(char **args)
 int
 filson_trap(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	(void)args;
 	filson_last_cmd_success = 1;
 	return 1;
@@ -498,6 +527,8 @@ filson_trap(char **args)
 int
 filson_ssh(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int argc;
 	char **ssh_args;
 	pid_t pid;
@@ -547,6 +578,8 @@ filson_ssh(char **args)
 int
 filson_local(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: local: usage: local var_name [var_name ...]\n");
 		filson_last_cmd_success = 0;
@@ -562,6 +595,8 @@ filson_local(char **args)
 int
 filson_return_stmt(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int ret_value;
 
 	if (!filson_has_active_function()) {
@@ -581,6 +616,8 @@ filson_return_stmt(char **args)
 int
 filson_unset_func(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int found;
 
 	if (args[1] == NULL) {
@@ -617,6 +654,8 @@ filson_unset_func(char **args)
 int
 filson_declare_func(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int show_func;
 
 	show_func = (args[1] != NULL && strcmp(args[1], "-f") == 0);
@@ -644,6 +683,8 @@ filson_declare_func(char **args)
 int
 filson_break(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	(void)args;
 	filson_break_flag = 1;
 	filson_last_cmd_success = 0;
@@ -653,6 +694,8 @@ filson_break(char **args)
 int
 filson_continue(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	(void)args;
 	filson_continue_flag = 1;
 	filson_last_cmd_success = 0;
@@ -663,6 +706,8 @@ static int
 filson_read_parse_args(char **args, char **varname_p, char **prompt_p,
     int *use_prompt_p)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	if (args[1] == NULL) {
 		fprintf(stderr, "filson: expected variable name for read\n");
 		filson_last_cmd_success = 0; return 0;
@@ -691,6 +736,8 @@ filson_read_parse_args(char **args, char **varname_p, char **prompt_p,
 int
 filson_read(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char *varname = NULL, *prompt = NULL;
 	char line[4096];
 	char *result;
@@ -712,6 +759,8 @@ filson_read(char **args)
 int
 filson_shift(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int n;
 	char *endptr;
 
@@ -738,6 +787,8 @@ filson_shift(char **args)
 static char *
 filson_source_accum_line(FILE *fp, const char *first_line)
 {
+	assert(first_line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char line[4096];
 	char *accum, *tmp;
 	int accum_len, accum_cap;
@@ -769,6 +820,8 @@ filson_source_accum_line(FILE *fp, const char *first_line)
 int
 filson_source(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char *filename;
 	FILE *fp;
 	char line[4096];
@@ -814,12 +867,16 @@ filson_source(char **args)
 int
 filson_dot(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	return filson_source(args);
 }
 
 int
 filson_eval(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	char buf[4096];
 	char *arg;
 	int pos;

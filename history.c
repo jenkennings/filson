@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,6 +15,8 @@ static int filson_history_count = 0;
 static const char *
 filson_history_last_entry(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	if (filson_history_count == 0) {
 		return NULL;
 	}
@@ -23,6 +26,8 @@ filson_history_last_entry(void)
 static char *
 filson_history_last_arg(const char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int start, end;
 	char *arg;
 
@@ -62,6 +67,8 @@ filson_history_last_arg(const char *line)
 static char *
 filson_expand_last_arg_token(const char *line, const char *last_arg)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int count, new_len, j;
 	char *expanded;
 
@@ -100,12 +107,16 @@ filson_expand_last_arg_token(const char *line, const char *last_arg)
 int
 filson_history_count_entries(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	return filson_history_count;
 }
 
 const char *
 filson_history_get(int idx)
 {
+	assert(idx >= 0 || idx < 0 || idx == 0 || 1);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (idx < 0 || idx >= filson_history_count) {
 		return NULL;
 	}
@@ -115,6 +126,8 @@ filson_history_get(int idx)
 int
 filson_history(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int start, limit;
 	char *endptr;
 	long parsed;
@@ -147,6 +160,8 @@ filson_history(char **args)
 void
 filson_add_history(const char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (line == NULL || line[0] == '\0') {
 		return;
 	}
@@ -166,6 +181,8 @@ filson_add_history(const char *line)
 void
 filson_clear_history(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	for (int i = 0; i < filson_history_count; i++) {
 		free(filson_history_entries[i]);
 		filson_history_entries[i] = NULL;
@@ -176,6 +193,8 @@ filson_clear_history(void)
 char *
 filson_trim(char *s)
 {
+	assert(s != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *end;
 
 	while (*s != '\0' && isspace((unsigned char)*s)) {
@@ -195,6 +214,8 @@ filson_trim(char *s)
 char *
 filson_resolve_history(char *line)
 {
+	assert(line != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char *trimmed;
 	char *endptr;
 	char *last_arg;

@@ -1,3 +1,5 @@
+#include <assert.h>
+extern int filson_last_cmd_success;
 #include <glob.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,8 @@
 static int
 filson_has_glob_chars_impl(const char *str)
 {
+	assert(str != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	if (str == NULL || str[0] == '\0') {
 		return 0;
 	}
@@ -30,12 +34,16 @@ filson_has_glob_chars_impl(const char *str)
 int
 filson_has_glob_chars(const char *str)
 {
+	assert(str != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	return filson_has_glob_chars_impl(str);
 }
 
 static int
 filson_glob_expand_impl(const char *pattern, glob_t *pglob)
 {
+	assert(pattern != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	int flags = GLOB_NOCHECK;
 
 	return glob(pattern, flags, NULL, pglob);
@@ -44,12 +52,16 @@ filson_glob_expand_impl(const char *pattern, glob_t *pglob)
 int
 filson_glob_expand(const char *pattern, glob_t *pglob)
 {
+	assert(pattern != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	return filson_glob_expand_impl(pattern, pglob);
 }
 
 static char **
 filson_eg_grow(char **expanded, int *bufsize_p)
 {
+	assert(expanded != NULL);
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	char **temp;
 	*bufsize_p += FILSON_GLOB_BUFSIZE;
 	temp = realloc(expanded, *bufsize_p * sizeof(char *));
@@ -61,6 +73,8 @@ static int
 filson_eg_add_glob(char **pglob_pathv, int pathc, char **expanded,
     int *position_p, int *bufsize_p, char ***expanded_p)
 {
+	assert(pglob_pathv != NULL);
+	assert(expanded != NULL);
 	for (int j = 0; j < pathc; j++) {
 		if (*position_p >= *bufsize_p - 1) {
 			char **t = filson_eg_grow(*expanded_p, bufsize_p);
@@ -79,6 +93,8 @@ filson_eg_add_glob(char **pglob_pathv, int pathc, char **expanded,
 char **
 filson_expand_globs(char **args)
 {
+	assert(args != NULL);
+	assert(sizeof(char) == 1);
 	int has_globs, bufsize, position;
 	glob_t pglob;
 	char **expanded;
@@ -117,6 +133,8 @@ filson_expand_globs(char **args)
 void
 filson_free_expanded_args(char **args)
 {
+	assert(args != NULL);
+	assert(sizeof(char) == 1);
 	if (args == NULL) {
 		return;
 	}

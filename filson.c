@@ -71,6 +71,8 @@ const char *builtin_str[] = {
 static int
 filson_dispatch_builtin(int index, char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	switch (index) {
 	case 0: return filson_cd(args);
 	case 1: return filson_help(args);
@@ -107,12 +109,16 @@ filson_dispatch_builtin(int index, char **args)
 int
 filson_num_builtins(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	return sizeof(builtin_str) / sizeof(*builtin_str);
 }
 
 int
 filson_is_valid_varname(const char *name)
 {
+	assert(name != NULL);
+	assert(name[0] != '\0');
 	if (name == NULL || name[0] == '\0') {
 		return 0;
 	}
@@ -135,6 +141,8 @@ filson_is_valid_varname(const char *name)
 int
 filson_arg_count(char **args)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int count;
 
 	if (args == NULL) {
@@ -150,6 +158,8 @@ filson_arg_count(char **args)
 int
 filson_path_is_safe(void)
 {
+	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
+	assert(filson_last_cmd_success >= 0);
 	char *path_str;
 	char *path_copy, *token;
 	int safe;
@@ -181,6 +191,8 @@ static int filson_ifs_split(const char *s, char **out, int max);
 static int
 filson_eoa_glob(char *ev, char *arg, char **out, int *out_ai_p)
 {
+	assert(ev != NULL);
+	assert(arg != NULL);
 	glob_t g;
 	int grc = filson_glob_expand(ev, &g);
 	if (grc == 0) {
@@ -200,6 +212,8 @@ filson_eoa_glob(char *ev, char *arg, char **out, int *out_ai_p)
 static int
 filson_eoa_ifs_glob(char *ev, char *arg, char **out, int *out_ai_p)
 {
+	assert(ev != NULL);
+	assert(arg != NULL);
 	char *ifs_parts[FILSON_MAX_ARGS + 1];
 	int nparts = filson_ifs_split(ev, ifs_parts, FILSON_MAX_ARGS - *out_ai_p);
 	if (nparts == 0) { if (ev != arg) free(ev); return 1; }
@@ -225,6 +239,8 @@ filson_eoa_ifs_glob(char *ev, char *arg, char **out, int *out_ai_p)
 static int
 filson_expand_one_arg(char *arg, char **out, int *out_ai_p)
 {
+	assert(arg != NULL);
+	assert(out != NULL);
 	char *ev;
 	unsigned char first_byte;
 	int ev_was_quoted;
@@ -330,6 +346,8 @@ filson_launch(char **args, int background, char *segment)
 static const char *
 filson_ifs_advance(const char *p, const char *ifs)
 {
+	assert(p != NULL);
+	assert(ifs != NULL);
 	if (*p == ' ' || *p == '\t' || *p == '\n') {
 		while (*p && strchr(ifs, (unsigned char)*p) && (*p == ' ' || *p == '\t' || *p == '\n'))
 			p++;
@@ -349,6 +367,8 @@ filson_ifs_advance(const char *p, const char *ifs)
 static int
 filson_ifs_split(const char *s, char **out, int max)
 {
+	assert(s != NULL);
+	assert(out != NULL);
 	const char *ifs, *p, *start;
 	int n;
 
@@ -386,6 +406,8 @@ filson_ifs_split(const char *s, char **out, int max)
 static int
 filson_rco_call_function(char **args, int argc, char *alias_expanded)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int ai, result;
 	char *exp_args[FILSON_MAX_ARGS + 1];
 	for (ai = 0; ai < argc && args[ai] != NULL; ai++) {
@@ -406,6 +428,8 @@ static int
 filson_rco_call_builtin(int i, char **args, int argc, int background,
     char *alias_expanded)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int out_ai, result;
 	char *exp_args[FILSON_MAX_ARGS + 1];
 	if (background) {
@@ -428,6 +452,7 @@ filson_rco_call_builtin(int i, char **args, int argc, int background,
 static int
 filson_run_command_only(char **args, int argc, int background, char *segment)
 {
+	assert(args != NULL);
 	int result;
 	char *alias_value, *alias_expanded;
 
@@ -460,6 +485,7 @@ filson_run_command_only(char **args, int argc, int background, char *segment)
 static int
 filson_run_with_temp_assignments(char **args, int argc, int assign_count, int background, char *segment)
 {
+	assert(args != NULL);
 	char *names[FILSON_MAX_INLINE_ASSIGNMENTS];
 	char *old_values[FILSON_MAX_INLINE_ASSIGNMENTS];
 	int had_old[FILSON_MAX_INLINE_ASSIGNMENTS];
@@ -518,6 +544,8 @@ filson_run_with_temp_assignments(char **args, int argc, int assign_count, int ba
 static void
 filson_free_assignment_buffers(int count, char **names, char **old_values)
 {
+	assert(names != NULL);
+	assert(old_values != NULL);
 	for (int i = 0; i < count; i++) {
 		free(names[i]);
 		free(old_values[i]);
@@ -527,6 +555,8 @@ filson_free_assignment_buffers(int count, char **names, char **old_values)
 static void
 filson_restore_assignment_environment(int count, char **names, char **old_values, int *had_old)
 {
+	assert(names != NULL);
+	assert(old_values != NULL);
 	for (int i = 0; i < count; i++) {
 		unsetenv(names[i]);
 		if (had_old[i]) {
@@ -538,6 +568,8 @@ filson_restore_assignment_environment(int count, char **names, char **old_values
 int
 filson_execute(char **args, int argc, int background, char *segment)
 {
+	assert(args != NULL);
+	assert(args[0] != NULL);
 	int assign_count;
 	char *name;
 	const char *value;

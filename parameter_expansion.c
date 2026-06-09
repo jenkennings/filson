@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -9,6 +10,8 @@
 static char *
 filson_extract_var_name(const char *start, const char *end)
 {
+	assert(start != NULL);
+	assert(end != NULL);
 	size_t len;
 	char *name;
 
@@ -24,6 +27,8 @@ filson_extract_var_name(const char *start, const char *end)
 static char *
 filson_epr_colon_minus(const char *var_name, const char *op_pos, const char *var_end)
 {
+	assert(var_name != NULL);
+	assert(op_pos != NULL);
 	const char *var_value;
 	char *default_val = filson_extract_var_name(op_pos + 2, var_end);
 	if (default_val == NULL) return NULL;
@@ -36,6 +41,8 @@ filson_epr_colon_minus(const char *var_name, const char *op_pos, const char *var
 static char *
 filson_epr_hash(const char *var_name, const char *op_pos, const char *var_end)
 {
+	assert(var_name != NULL);
+	assert(op_pos != NULL);
 	const char *var_value;
 	char *pattern = filson_extract_var_name(op_pos + 1, var_end);
 	size_t plen;
@@ -52,6 +59,8 @@ filson_epr_hash(const char *var_name, const char *op_pos, const char *var_end)
 static char *
 filson_epr_percent(const char *var_name, const char *op_pos, const char *var_end)
 {
+	assert(var_name != NULL);
+	assert(op_pos != NULL);
 	const char *var_value;
 	char *pattern = filson_extract_var_name(op_pos + 1, var_end);
 	size_t plen, vlen;
@@ -76,6 +85,8 @@ filson_epr_percent(const char *var_name, const char *op_pos, const char *var_end
 static char *
 filson_expand_parameter_reference(const char *ref_start, const char *ref_end)
 {
+	assert(ref_start != NULL);
+	assert(ref_end != NULL);
 	const char *var_start, *var_end, *op_pos;
 	char *var_name, *result;
 	const char *var_value;
@@ -113,6 +124,8 @@ static int
 filson_ep_expand_ref(const char *input, int i, char **out_p, int *out_len_p,
     int *out_cap_p, int *new_i_p)
 {
+	assert(input != NULL);
+	assert(out_p != NULL);
 	const char *ref_start = input + i;
 	int j = i + 2, depth = 1;
 	char *expanded_ref, *tmp;
