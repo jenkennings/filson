@@ -174,110 +174,81 @@ filson_set(char **args)
 	return 1;
 }
 
+static int
+filson_echo_escape(const char **str_p, char *buf, int buf_len, int buf_max)
+{
+	const char *str = *str_p;
+	str++;
+	switch (*str) {
+	case 'a': buf[buf_len++] = '\a'; break;
+	case 'b': buf[buf_len++] = '\b'; break;
+	case 'c': *str_p = str; return -1;
+	case 'e': buf[buf_len++] = '\033'; break;
+	case 'f': buf[buf_len++] = '\f'; break;
+	case 'n': buf[buf_len++] = '\n'; break;
+	case 'r': buf[buf_len++] = '\r'; break;
+	case 't': buf[buf_len++] = '\t'; break;
+	case 'v': buf[buf_len++] = '\v'; break;
+	case '\\': buf[buf_len++] = '\\'; break;
+	case '0': {
+		int octal_val = 0, octal_len = 0;
+		str++;
+		while (octal_len < 3 && *str >= '0' && *str <= '7') {
+			octal_val = octal_val * 8 + (*str - '0');
+			str++; octal_len++;
+		}
+		if (buf_len < buf_max) buf[buf_len++] = (char)octal_val;
+		str--;
+		break;
+	}
+	default:
+		if (buf_len + 1 < buf_max) { buf[buf_len++] = '\\'; buf[buf_len++] = *str; }
+		break;
+	}
+	*str_p = str + 1;
+	return buf_len;
+}
+
 int
 filson_echo(char **args)
 {
-	int i;
-	int eflag;
-	int nflag;
-	int first;
+	int i, eflag, nflag, first, buf_len;
 	char buf[8192];
-	int buf_len;
 	const char *str;
 
-	eflag = 0;
-	nflag = 0;
+	eflag = nflag = 0;
 	i = 1;
 	while (args[i] != NULL && args[i][0] == '-') {
-		if (strcmp(args[i], "-e") == 0) {
-			eflag = 1;
-			i++;
-		} else if (strcmp(args[i], "-n") == 0) {
-			nflag = 1;
-			i++;
-		} else {
-			break;
-		}
+		if (strcmp(args[i], "-e") == 0) { eflag = 1; i++; }
+		else if (strcmp(args[i], "-n") == 0) { nflag = 1; i++; }
+		else break;
 	}
 	first = 1;
 	buf_len = 0;
 	while (args[i] != NULL) {
-		if (!first && buf_len < (int)sizeof(buf) - 1) {
-			buf[buf_len++] = ' ';
-		}
+		if (!first && buf_len < (int)sizeof(buf) - 1) buf[buf_len++] = ' ';
 		first = 0;
 		str = args[i];
 		if (eflag) {
 			while (*str && buf_len < (int)sizeof(buf) - 2) {
 				if (*str == '\\' && *(str + 1) != '\0') {
-					str++;
-					switch (*str) {
-					case 'a':
-						buf[buf_len++] = '\a';
-						break;
-					case 'b':
-						buf[buf_len++] = '\b';
-						break;
-					case 'c':
+					int res = filson_echo_escape(&str, buf, buf_len, (int)sizeof(buf) - 1);
+					if (res < 0) {
 						write(1, buf, buf_len);
 						filson_last_cmd_success = 1;
 						return 1;
-					case 'e':
-						buf[buf_len++] = '\033';
-						break;
-					case 'f':
-						buf[buf_len++] = '\f';
-						break;
-					case 'n':
-						buf[buf_len++] = '\n';
-						break;
-					case 'r':
-						buf[buf_len++] = '\r';
-						break;
-					case 't':
-						buf[buf_len++] = '\t';
-						break;
-					case 'v':
-						buf[buf_len++] = '\v';
-						break;
-					case '\\':
-						buf[buf_len++] = '\\';
-						break;
-					case '0': {
-						int octal_val;
-						int octal_len;
-						octal_val = 0;
-						octal_len = 0;
-						str++;
-						while (octal_len < 3 && *str >= '0' && *str <= '7') {
-							octal_val = octal_val * 8 + (*str - '0');
-							str++;
-							octal_len++;
-						}
-						buf[buf_len++] = (char)octal_val;
-						str--;
-						break;
 					}
-					default:
-						buf[buf_len++] = '\\';
-						buf[buf_len++] = *str;
-						break;
-					}
-					str++;
+					buf_len = res;
 				} else {
 					buf[buf_len++] = *str++;
 				}
 			}
 		} else {
-			while (*str && buf_len < (int)sizeof(buf) - 1) {
-				buf[buf_len++] = *str++;
-			}
+			while (*str && buf_len < (int)sizeof(buf) - 1) buf[buf_len++] = *str++;
 		}
 		i++;
 	}
-	if (!nflag && buf_len < (int)sizeof(buf) - 1) {
-		buf[buf_len++] = '\n';
-	}
+	if (!nflag && buf_len < (int)sizeof(buf) - 1) buf[buf_len++] = '\n';
 	write(1, buf, buf_len);
 	filson_last_cmd_success = 1;
 	return 1;
