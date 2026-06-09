@@ -307,23 +307,24 @@ filson_launch(char **args, int background, char *segment)
 			if (waited < 0) {
 				warn("waitpid");
 				filson_last_cmd_success = 0;
-				goto launch_done;
+				break;
 			}
 		} while (!WIFEXITED(status) && !WIFSIGNALED(status) && !WIFSTOPPED(status));
-		if (WIFSTOPPED(status)) {
-			job_id = filson_add_job(pid, segment, 1);
-			if (job_id >= 0) printf("[%d] Stopped %s\n", job_id, segment);
-			filson_last_cmd_success = 0;
-		} else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-			filson_last_cmd_success = 1;
-			filson_last_exit_status = 0;
-		} else {
-			filson_last_cmd_success = 0;
-			if (WIFEXITED(status)) filson_last_exit_status = WEXITSTATUS(status);
-			else if (WIFSIGNALED(status)) filson_last_exit_status = 128 + WTERMSIG(status);
+		if (waited >= 0) {
+			if (WIFSTOPPED(status)) {
+				job_id = filson_add_job(pid, segment, 1);
+				if (job_id >= 0) printf("[%d] Stopped %s\n", job_id, segment);
+				filson_last_cmd_success = 0;
+			} else if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+				filson_last_cmd_success = 1;
+				filson_last_exit_status = 0;
+			} else {
+				filson_last_cmd_success = 0;
+				if (WIFEXITED(status)) filson_last_exit_status = WEXITSTATUS(status);
+				else if (WIFSIGNALED(status)) filson_last_exit_status = 128 + WTERMSIG(status);
+			}
 		}
 	}
-launch_done:
 	for (ai = 0; ai < pre_ai; ai++) if (pre_args[ai] != NULL) free(pre_args[ai]);
 	return 1;
 }
