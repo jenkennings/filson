@@ -246,6 +246,280 @@ filson_brace_end(const char *s, int start)
 }
 
 static char *
+filson_ebe_hash_len(const char *inner, int inner_len)
+{
+	char num_buf[32];
+	char *var_name;
+	const char *val;
+	int slen;
+
+	if (inner_len == 1) {
+		snprintf(num_buf, sizeof(num_buf), "%d", filson_get_pospar_count());
+		return strdup(num_buf);
+	}
+	var_name = malloc(inner_len);
+	if (var_name == NULL)
+		return strdup("0");
+	memcpy(var_name, inner + 1, inner_len - 1);
+	var_name[inner_len - 1] = '\0';
+	val = getenv(var_name);
+	free(var_name);
+	slen = val ? (int)strlen(val) : 0;
+	snprintf(num_buf, sizeof(num_buf), "%d", slen);
+	return strdup(num_buf);
+}
+
+static char *
+filson_ebe_prefix_trim(const char *inner, int inner_len, int op_pos,
+    const char *var_value, char *var_name)
+{
+	int greedy, pfx_start, pat_len, best_len, test_len;
+	char *pattern, *result;
+
+	greedy = (inner[op_pos + 1] == '#');
+	pfx_start = op_pos + (greedy ? 2 : 1);
+	pat_len = inner_len - pfx_start;
+	pattern = filson_expand_pattern(inner + pfx_start, pat_len);
+	if (pattern == NULL) { free(var_name); return strdup(""); }
+	if (var_value == NULL) { free(var_name); free(pattern); return strdup(""); }
+	if (pat_len == 0) { free(var_name); free(pattern); return strdup(var_value); }
+	best_len = 0;
+	if (greedy) {
+		for (test_len = strlen(var_value); test_len >= 0; test_len--) {
+			char tmp_c = ((char *)var_value)[test_len];
+			((char *)var_value)[test_len] = '\0';
+			if (fnmatch(pattern, var_value, 0) == 0) {
+				best_len = test_len;
+				((char *)var_value)[test_len] = tmp_c;
+				break;
+			}
+			((char *)var_value)[test_len] = tmp_c;
+		}
+	} else {
+		for (test_len = 0; test_len <= (int)strlen(var_value); test_len++) {
+			char tmp_c = ((char *)var_value)[test_len];
+			((char *)var_value)[test_len] = '\0';
+			if (fnmatch(pattern, var_value, 0) == 0) {
+				best_len = test_len;
+				((char *)var_value)[test_len] = tmp_c;
+				break;
+			}
+			((char *)var_value)[test_len] = tmp_c;
+		}
+	}
+	result = strdup(var_value + best_len);
+	free(var_name);
+	free(pattern);
+	return result;
+}
+
+static char *
+filson_ebe_suffix_trim(const char *inner, int inner_len, int op_pos,
+    const char *var_value, char *var_name)
+{
+	int greedy, sfx_start, pat_len, vlen, best_len, test_len;
+	char *pattern, *trimmed;
+
+	greedy = (inner[op_pos + 1] == '%');
+	sfx_start = op_pos + (greedy ? 2 : 1);
+	pat_len = inner_len - sfx_start;
+	pattern = filson_expand_pattern(inner + sfx_start, pat_len);
+	if (pattern == NULL) { free(var_name); return strdup(""); }
+	if (var_value == NULL) { free(var_name); free(pattern); return strdup(""); }
+	if (pat_len == 0) { free(var_name); free(pattern); return strdup(var_value); }
+	vlen = strlen(var_value);
+	best_len = vlen;
+	if (greedy) {
+		for (test_len = 0; test_len <= vlen; test_len++) {
+			if (fnmatch(pattern, var_value + test_len, 0) == 0) {
+				best_len = test_len;
+				break;
+			}
+		}
+	} else {
+		for (test_len = vlen; test_len >= 0; test_len--) {
+			if (fnmatch(pattern, var_value + test_len, 0) == 0) {
+				best_len = test_len;
+				break;
+			}
+		}
+	}
+	trimmed = malloc(best_len + 1);
+	if (trimmed == NULL) { free(var_name); free(pattern); return strdup(""); }
+	memcpy(trimmed, var_value, best_len);
+	trimmed[best_len] = '\0';
+	free(var_name);
+	free(pattern);
+	return trimmed;
+}
+
+static char *
+filson_ebe_expand_word(char *word, int word_is_quoted)
+{
+	char *tmp, *expanded, *result;
+
+	tmp = filson_expand_string_variables(word);
+	expanded = (tmp == word) ? strdup(word) : tmp;
+	if (filson_in_dquote_context) {
+		result = filson_unescape_dquote_word(expanded);
+		free(expanded);
+	} else {
+		result = filson_unescape_word(expanded);
+		if (result != expanded)
+			free(expanded);
+	}
+	if (word_is_quoted)
+		result = filson_make_quoted_result(result);
+	return result;
+}
+
+static char *
+filson_ebe_plus_at(void)
+{
+	int count, total, kk, rp;
+	char *pv, *result;
+
+	count = filson_get_pospar_count();
+	if (count == 0)
+		return strdup("\x03");
+	total = 2;
+	for (kk = 1; kk <= count; kk++) {
+		pv = filson_get_pospar(kk);
+		if (pv && ((unsigned char)pv[0] == 0x01 || (unsigned char)pv[0] == 0x02))
+			pv++;
+		total += (pv ? (int)strlen(pv) : 0) + 1;
+	}
+	result = malloc(total);
+	if (result == NULL)
+		return strdup("");
+	rp = 0;
+	result[rp++] = '\x03';
+	for (kk = 1; kk <= count; kk++) {
+		pv = filson_get_pospar(kk);
+		if (pv && ((unsigned char)pv[0] == 0x01 || (unsigned char)pv[0] == 0x02))
+			pv++;
+		if (kk > 1)
+			result[rp++] = '\x1f';
+		if (pv) {
+			int plen = strlen(pv);
+			memcpy(result + rp, pv, plen);
+			rp += plen;
+		}
+	}
+	result[rp] = '\0';
+	return result;
+}
+
+static char *
+filson_ebe_word_op(char op1, int colon, const char *var_value,
+    char *var_name, char *word)
+{
+	int word_is_quoted = ((unsigned char)word[0] == 0x05);
+	int unset_or_empty;
+	char *result;
+
+	if (op1 == '-') {
+		unset_or_empty = (var_value == NULL) || (colon && var_value[0] == '\0');
+		result = unset_or_empty ? filson_ebe_expand_word(word, word_is_quoted) : strdup(var_value);
+		free(var_name); free(word);
+		return result;
+	}
+	if (op1 == '=') {
+		unset_or_empty = (var_value == NULL) || (colon && var_value[0] == '\0');
+		if (unset_or_empty) {
+			result = filson_ebe_expand_word(word, 0);
+			if (word_is_quoted && filson_in_dquote_context)
+				result = filson_make_quoted_result(result);
+			setenv(var_name, (unsigned char)result[0] == 0x02 ? result + 1 : result, 1);
+		} else {
+			result = strdup(var_value);
+		}
+		free(var_name); free(word);
+		return result;
+	}
+	if (op1 == '+') {
+		int set_and_nonempty = (var_value != NULL) && (!colon || var_value[0] != '\0');
+		if (set_and_nonempty) {
+			if (word_is_quoted && (unsigned char)word[0] == 0x05 &&
+			    word[1] == '$' && word[2] == '@' &&
+			    (unsigned char)word[3] == 0x05 && word[4] == '\0') {
+				result = filson_ebe_plus_at();
+			} else {
+				result = filson_ebe_expand_word(word, word_is_quoted);
+			}
+		} else {
+			result = strdup("");
+		}
+		free(var_name); free(word);
+		return result;
+	}
+	if (op1 == '?') {
+		unset_or_empty = (var_value == NULL) || (colon && var_value[0] == '\0');
+		if (unset_or_empty) {
+			fprintf(stderr, "%s: %s\n", var_name,
+			    word[0] ? word : "parameter null or not set");
+			free(var_name); free(word);
+			return strdup("");
+		}
+		result = strdup(var_value);
+		free(var_name); free(word);
+		return result;
+	}
+	free(var_name); free(word);
+	return strdup("");
+}
+
+static int
+filson_ebe_scan_op(const char *inner, int inner_len, char *op1_out, int *colon_out)
+{
+	int i;
+
+	for (i = 0; i < inner_len; i++) {
+		if ((inner[i] >= 'A' && inner[i] <= 'Z') ||
+		    (inner[i] >= 'a' && inner[i] <= 'z') ||
+		    (inner[i] >= '0' && inner[i] <= '9') ||
+		    inner[i] == '_')
+			continue;
+		if (inner[i] == ':' && i > 0) {
+			*colon_out = 1;
+			*op1_out = inner[i + 1];
+			return i;
+		}
+		if ((inner[i] == '-' || inner[i] == '=' || inner[i] == '+' ||
+		    inner[i] == '?' || inner[i] == '#' || inner[i] == '%') && i > 0) {
+			*colon_out = 0;
+			*op1_out = inner[i];
+			return i;
+		}
+		return -1;
+	}
+	return -1;
+}
+
+static char *
+filson_ebe_simple_var(const char *inner, int inner_len)
+{
+	char *var_name;
+	const char *var_value;
+	char *result;
+
+	var_name = malloc(inner_len + 1);
+	if (var_name == NULL)
+		return strdup("");
+	memcpy(var_name, inner, inner_len);
+	var_name[inner_len] = '\0';
+	if (inner_len == 1 && inner[0] >= '1' && inner[0] <= '9') {
+		char *pv = filson_get_pospar(inner[0] - '0');
+		free(var_name);
+		return strdup(pv ? pv : "");
+	}
+	var_value = getenv(var_name);
+	result = strdup(var_value ? var_value : "");
+	free(var_name);
+	return result;
+}
+
+static char *
 filson_expand_brace_expr(const char *inner, int inner_len)
 {
 	char *var_name;
@@ -253,83 +527,19 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 	char op1;
 	int colon;
 	int op_pos;
-	int i;
-	int pat_len;
-	char *pattern;
-	char *result;
-
-	int best_len;
-	int test_len;
-	char *trimmed;
 	char *word;
+	int word_start, word_len;
 
 	if (inner_len <= 0)
 		return strdup("");
+	if (inner[0] == '#')
+		return filson_ebe_hash_len(inner, inner_len);
 
-	if (inner[0] == '#') {
-		char num_buf[32];
-		const char *val;
-		int slen;
-
-		if (inner_len == 1) {
-			snprintf(num_buf, sizeof(num_buf), "%d",
-			    filson_get_pospar_count());
-			return strdup(num_buf);
-		}
-		var_name = malloc(inner_len);
-		if (var_name == NULL)
-			return strdup("0");
-		memcpy(var_name, inner + 1, inner_len - 1);
-		var_name[inner_len - 1] = '\0';
-		val = getenv(var_name);
-		free(var_name);
-		slen = val ? (int)strlen(val) : 0;
-		snprintf(num_buf, sizeof(num_buf), "%d", slen);
-		return strdup(num_buf);
-	}
-
-	op_pos = -1;
-	colon = 0;
 	op1 = 0;
-	for (i = 0; i < inner_len; i++) {
-		if ((inner[i] == 'a' || inner[i] == '_' ||
-		    (inner[i] >= 'A' && inner[i] <= 'Z') ||
-		    (inner[i] >= 'a' && inner[i] <= 'z') ||
-		    (inner[i] >= '0' && inner[i] <= '9'))) {
-			continue;
-		}
-		if (inner[i] == ':' && i > 0) {
-			colon = 1;
-			op_pos = i;
-			op1 = inner[i + 1];
-			break;
-		}
-		if ((inner[i] == '-' || inner[i] == '=' || inner[i] == '+' ||
-		    inner[i] == '?' || inner[i] == '#' || inner[i] == '%') && i > 0) {
-			colon = 0;
-			op_pos = i;
-			op1 = inner[i];
-			break;
-		}
-		break;
-	}
-
-	if (op_pos <= 0) {
-		var_name = malloc(inner_len + 1);
-		if (var_name == NULL)
-			return strdup("");
-		memcpy(var_name, inner, inner_len);
-		var_name[inner_len] = '\0';
-		if (inner_len == 1 && inner[0] >= '1' && inner[0] <= '9') {
-			char *pv = filson_get_pospar(inner[0] - '0');
-			free(var_name);
-			return strdup(pv ? pv : "");
-		}
-		var_value = getenv(var_name);
-		result = strdup(var_value ? var_value : "");
-		free(var_name);
-		return result;
-	}
+	colon = 0;
+	op_pos = filson_ebe_scan_op(inner, inner_len, &op1, &colon);
+	if (op_pos <= 0)
+		return filson_ebe_simple_var(inner, inner_len);
 
 	var_name = malloc(op_pos + 1);
 	if (var_name == NULL)
@@ -339,262 +549,24 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 
 	if (op_pos == 1 && var_name[0] >= '1' && var_name[0] <= '9') {
 		char *pv = filson_get_pospar(var_name[0] - '0');
-		var_value = pv ? (((unsigned char)pv[0] == 0x01 || (unsigned char)pv[0] == 0x02) ? pv + 1 : pv) : NULL;
+		var_value = pv ? (((unsigned char)pv[0] == 0x01 ||
+		    (unsigned char)pv[0] == 0x02) ? pv + 1 : pv) : NULL;
 	} else {
 		var_value = getenv(var_name);
 	}
 
-	if (inner[op_pos] == '#') {
-		int greedy = (inner[op_pos + 1] == '#');
-		int pfx_start = op_pos + (greedy ? 2 : 1);
+	if (inner[op_pos] == '#')
+		return filson_ebe_prefix_trim(inner, inner_len, op_pos, var_value, var_name);
+	if (inner[op_pos] == '%')
+		return filson_ebe_suffix_trim(inner, inner_len, op_pos, var_value, var_name);
 
-		pat_len = inner_len - pfx_start;
-		pattern = filson_expand_pattern(inner + pfx_start, pat_len);
-		if (pattern == NULL) {
-			free(var_name);
-			return strdup("");
-		}
-
-		if (var_value == NULL) {
-			free(var_name);
-			free(pattern);
-			return strdup("");
-		}
-		best_len = 0;
-		if (pat_len == 0) {
-			free(var_name);
-			free(pattern);
-			return strdup(var_value);
-		}
-		if (greedy) {
-			for (test_len = strlen(var_value); test_len >= 0; test_len--) {
-				char tmp_c = ((char *)var_value)[test_len];
-				((char *)var_value)[test_len] = '\0';
-				if (fnmatch(pattern, var_value, 0) == 0) {
-					best_len = test_len;
-					((char *)var_value)[test_len] = tmp_c;
-					break;
-				}
-				((char *)var_value)[test_len] = tmp_c;
-			}
-		} else {
-			for (test_len = 0; test_len <= (int)strlen(var_value); test_len++) {
-				char tmp_c = ((char *)var_value)[test_len];
-				((char *)var_value)[test_len] = '\0';
-				if (fnmatch(pattern, var_value, 0) == 0) {
-					best_len = test_len;
-					((char *)var_value)[test_len] = tmp_c;
-					break;
-				}
-				((char *)var_value)[test_len] = tmp_c;
-			}
-		}
-		result = strdup(var_value + best_len);
-		free(var_name);
-		free(pattern);
-		return result;
-	}
-
-	if (inner[op_pos] == '%') {
-		int greedy = (inner[op_pos + 1] == '%');
-		int sfx_start = op_pos + (greedy ? 2 : 1);
-		int vlen;
-
-		pat_len = inner_len - sfx_start;
-		pattern = filson_expand_pattern(inner + sfx_start, pat_len);
-		if (pattern == NULL) {
-			free(var_name);
-			return strdup("");
-		}
-
-		if (var_value == NULL) {
-			free(var_name);
-			free(pattern);
-			return strdup("");
-		}
-		vlen = strlen(var_value);
-		if (pat_len == 0) {
-			free(var_name);
-			free(pattern);
-			return strdup(var_value);
-		}
-		best_len = vlen;
-		if (greedy) {
-			for (test_len = 0; test_len <= vlen; test_len++) {
-				if (fnmatch(pattern, var_value + test_len, 0) == 0) {
-					best_len = test_len;
-					break;
-				}
-			}
-		} else {
-			for (test_len = vlen; test_len >= 0; test_len--) {
-				if (fnmatch(pattern, var_value + test_len, 0) == 0) {
-					best_len = test_len;
-					break;
-				}
-			}
-		}
-		trimmed = malloc(best_len + 1);
-		if (trimmed == NULL) {
-			free(var_name);
-			free(pattern);
-			return strdup("");
-		}
-		memcpy(trimmed, var_value, best_len);
-		trimmed[best_len] = '\0';
-		free(var_name);
-		free(pattern);
-		return trimmed;
-	}
-
-	word = malloc(inner_len - (colon ? op_pos + 2 : op_pos + 1) + 1);
-	if (word == NULL) {
-		free(var_name);
-		return strdup("");
-	}
-	{
-		int word_start = colon ? op_pos + 2 : op_pos + 1;
-		int word_len = inner_len - word_start;
-		memcpy(word, inner + word_start, word_len);
-		word[word_len] = '\0';
-	}
-
-	{
-		int word_is_quoted = ((unsigned char)word[0] == 0x05);
-
-	if (op1 == '-') {
-		int unset_or_empty = (var_value == NULL) || (colon && var_value[0] == '\0');
-		if (unset_or_empty) {
-			char *tmp = filson_expand_string_variables(word);
-			char *expanded = (tmp == word) ? strdup(word) : tmp;
-			if (filson_in_dquote_context) {
-				result = filson_unescape_dquote_word(expanded);
-				free(expanded);
-			} else {
-				result = filson_unescape_word(expanded);
-				if (result != expanded)
-					free(expanded);
-			}
-			if (word_is_quoted)
-				result = filson_make_quoted_result(result);
-		} else {
-			result = strdup(var_value);
-		}
-		free(var_name);
-		free(word);
-		return result;
-	}
-
-	if (op1 == '=') {
-		int unset_or_empty = (var_value == NULL) || (colon && var_value[0] == '\0');
-		if (unset_or_empty) {
-			char *tmp = filson_expand_string_variables(word);
-			char *expanded = (tmp == word) ? strdup(word) : tmp;
-			if (filson_in_dquote_context) {
-				result = filson_unescape_dquote_word(expanded);
-				free(expanded);
-			} else {
-				result = filson_unescape_word(expanded);
-				if (result != expanded)
-					free(expanded);
-			}
-			if (word_is_quoted && filson_in_dquote_context)
-				result = filson_make_quoted_result(result);
-			setenv(var_name, (unsigned char)result[0] == 0x02 ? result + 1 : result, 1);
-		} else {
-			result = strdup(var_value);
-		}
-		free(var_name);
-		free(word);
-		return result;
-	}
-
-	if (op1 == '+') {
-		int set_and_nonempty = (var_value != NULL) && (!colon || var_value[0] != '\0');
-		if (set_and_nonempty) {
-			if (word_is_quoted &&
-			    (unsigned char)word[0] == 0x05 && word[1] == '$' &&
-			    word[2] == '@' && (unsigned char)word[3] == 0x05 &&
-			    word[4] == '\0') {
-				int count = filson_get_pospar_count();
-				if (count == 0) {
-					result = strdup("\x03");
-				} else {
-					int total;
-					int kk;
-					int rp;
-					char *pv;
-
-					total = 2;
-					for (kk = 1; kk <= count; kk++) {
-						pv = filson_get_pospar(kk);
-						if (pv && ((unsigned char)pv[0] == 0x01 ||
-						    (unsigned char)pv[0] == 0x02))
-							pv++;
-						total += (pv ? (int)strlen(pv) : 0) + 1;
-					}
-					result = malloc(total);
-					if (result != NULL) {
-						rp = 0;
-						result[rp++] = '\x03';
-						for (kk = 1; kk <= count; kk++) {
-							pv = filson_get_pospar(kk);
-							if (pv && ((unsigned char)pv[0] == 0x01 ||
-							    (unsigned char)pv[0] == 0x02))
-								pv++;
-							if (kk > 1)
-								result[rp++] = '\x1f';
-							if (pv) {
-								int plen = strlen(pv);
-								memcpy(result + rp, pv, plen);
-								rp += plen;
-							}
-						}
-						result[rp] = '\0';
-					} else {
-						result = strdup("");
-					}
-				}
-			} else {
-				char *tmp = filson_expand_string_variables(word);
-				char *expanded = (tmp == word) ? strdup(word) : tmp;
-				if (filson_in_dquote_context) {
-					result = filson_unescape_dquote_word(expanded);
-					free(expanded);
-				} else {
-					result = filson_unescape_word(expanded);
-					if (result != expanded)
-						free(expanded);
-				}
-				if (word_is_quoted)
-					result = filson_make_quoted_result(result);
-			}
-		} else {
-			result = strdup("");
-		}
-		free(var_name);
-		free(word);
-		return result;
-	}
-
-	if (op1 == '?') {
-		int unset_or_empty = (var_value == NULL) || (colon && var_value[0] == '\0');
-		if (unset_or_empty) {
-			fprintf(stderr, "%s: %s\n", var_name, word[0] ? word : "parameter null or not set");
-			free(var_name);
-			free(word);
-			return strdup("");
-		}
-		result = strdup(var_value);
-		free(var_name);
-		free(word);
-		return result;
-	}
-
-	free(var_name);
-	free(word);
-	return strdup("");
-	}
+	word_start = colon ? op_pos + 2 : op_pos + 1;
+	word_len = inner_len - word_start;
+	word = malloc(word_len + 1);
+	if (word == NULL) { free(var_name); return strdup(""); }
+	memcpy(word, inner + word_start, word_len);
+	word[word_len] = '\0';
+	return filson_ebe_word_op(op1, colon, var_value, var_name, word);
 }
 
 char *
