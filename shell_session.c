@@ -445,214 +445,148 @@ filson_read_line(void)
 	}
 }
 
+static void
+filson_sl_push_token(char ***tokens_p, int *pos_p, int *bufsize_p, char *tok)
+{
+	(*tokens_p)[*pos_p] = tok;
+	(*pos_p)++;
+	if (*pos_p >= *bufsize_p) {
+		*bufsize_p += FILSON_TOK_BUFSIZE;
+		*tokens_p = realloc(*tokens_p, *bufsize_p * sizeof(char *));
+		if (!*tokens_p) { fprintf(stderr, "filson: allocation error\n"); exit(EXIT_FAILURE); }
+	}
+}
+
+static void
+filson_sl_store_token(char ***tokens_p, int *pos_p, int *bufsize_p,
+    char *tokbuf, int j, int started_in_single, int started_in_double,
+    int unquoted_start, int eq_tilde_escaped)
+{
+	char *token_copy;
+	int eqpos, k;
+
+	if (j == 0 && !started_in_double && !started_in_single) return;
+	tokbuf[j] = '\0';
+	eqpos = -1;
+	for (k = 0; k < j; k++) { if (tokbuf[k] == '=') { eqpos = k; break; } }
+	if (eqpos >= 0 && tokbuf[eqpos + 1] == '~' && !eq_tilde_escaped) {
+		char *texp = filson_tilde_expand(tokbuf + eqpos + 1);
+		if (texp != NULL) {
+			int tlen = strlen(texp);
+			token_copy = malloc(eqpos + 1 + tlen + 1);
+			if (!token_copy) { free(texp); fprintf(stderr, "filson: allocation error\n"); exit(EXIT_FAILURE); }
+			memcpy(token_copy, tokbuf, eqpos + 1);
+			memcpy(token_copy + eqpos + 1, texp, tlen + 1);
+			free(texp);
+			filson_sl_push_token(tokens_p, pos_p, bufsize_p, token_copy);
+			return;
+		}
+	}
+	if (unquoted_start && tokbuf[0] == '~') {
+		char *texp = filson_tilde_expand(tokbuf);
+		if (texp != NULL) { filson_sl_push_token(tokens_p, pos_p, bufsize_p, texp); return; }
+	}
+	token_copy = malloc(j + 1 + ((started_in_single || started_in_double) ? 1 : 0));
+	if (!token_copy) { fprintf(stderr, "filson: allocation error\n"); exit(EXIT_FAILURE); }
+	if (started_in_single) { token_copy[0] = '\x01'; memcpy(token_copy + 1, tokbuf, j + 1); }
+	else if (started_in_double) { token_copy[0] = '\x02'; memcpy(token_copy + 1, tokbuf, j + 1); }
+	else memcpy(token_copy, tokbuf, j + 1);
+	filson_sl_push_token(tokens_p, pos_p, bufsize_p, token_copy);
+}
+
+static int
+filson_sl_scan_token(const char *line, int i, char *tokbuf, int tokbuf_size,
+    int *j_p, int *in_single_p, int *in_double_p,
+    int *brace_depth_p, int *paren_depth_p,
+    int *unquoted_start_p, int *eq_tilde_escaped_p,
+    int *started_in_single_p, int *started_in_double_p)
+{
+	int j = *j_p;
+
+	while (line[i] != '\0') {
+		if (!*in_double_p && line[i] == '\'') {
+			if (!*in_single_p && j == 0) *started_in_single_p = 1;
+			*in_single_p = !*in_single_p; i++; continue;
+		}
+		if (!*in_single_p && line[i] == '"') {
+			if (!*in_double_p && j == 0) *started_in_double_p = 1;
+			if (*brace_depth_p > 0 && j < tokbuf_size - 1) tokbuf[j++] = '\x05';
+			*in_double_p = !*in_double_p; i++; continue;
+		}
+		if (!*in_single_p && !*in_double_p) {
+			if (*brace_depth_p == 0 && line[i] == '\\' && line[i+1] != '\0' && line[i+1] != '\n') {
+				if (j == 0) *unquoted_start_p = 0;
+				if (j > 0 && tokbuf[j-1] == '=' && line[i+1] == '~') *eq_tilde_escaped_p = 1;
+				i++;
+				if (j < tokbuf_size - 1) tokbuf[j++] = line[i];
+				i++; continue;
+			}
+			if (line[i] == '$' && line[i+1] == '{') {
+				(*brace_depth_p)++;
+				if (j < tokbuf_size - 2) { tokbuf[j++] = line[i]; tokbuf[j++] = line[i+1]; }
+				i += 2; continue;
+			}
+			if (*brace_depth_p > 0 && line[i] == '}') {
+				(*brace_depth_p)--;
+				if (j < tokbuf_size - 1) tokbuf[j++] = line[i];
+				i++; continue;
+			}
+			if (line[i] == '$' && line[i+1] == '(') {
+				(*paren_depth_p)++;
+				if (j < tokbuf_size - 2) { tokbuf[j++] = line[i]; tokbuf[j++] = line[i+1]; }
+				i += 2; continue;
+			}
+			if (*paren_depth_p > 0 && line[i] == ')') {
+				(*paren_depth_p)--;
+				if (j < tokbuf_size - 1) tokbuf[j++] = line[i];
+				i++; continue;
+			}
+			if (*brace_depth_p == 0 && *paren_depth_p == 0 &&
+			    (line[i] == ' ' || line[i] == '\t')) break;
+		} else if (*in_double_p && !*in_single_p) {
+			if (line[i] == '$' && line[i+1] == '{') (*brace_depth_p)++;
+			else if (*brace_depth_p > 0 && line[i] == '}') (*brace_depth_p)--;
+		}
+		if (j < tokbuf_size - 1) {
+			if (j == 0 && !*in_single_p && !*in_double_p) *unquoted_start_p = 1;
+			tokbuf[j++] = line[i];
+		}
+		i++;
+	}
+	*j_p = j;
+	return i;
+}
+
 char **
 filson_split_line(char *line)
 {
-	int bufsize;
-	int position;
+	int bufsize, position;
 	char **tokens;
-	char *token_copy;
 	char tokbuf[4096];
-	int i;
-	int j;
-	int in_single;
-	int in_double;
-	int brace_depth;
-	int paren_depth;
-	int unquoted_start;
-	int eq_tilde_escaped;
-	int started_in_single;
-	int started_in_double;
+	int i, j;
+	int in_single, in_double, brace_depth, paren_depth;
+	int unquoted_start, eq_tilde_escaped;
+	int started_in_single, started_in_double;
 
 	bufsize = FILSON_TOK_BUFSIZE;
 	position = 0;
 	tokens = malloc(bufsize * sizeof(char *));
-	if (!tokens) {
-		fprintf(stderr, "filson: allocation error\n");
-		exit(EXIT_FAILURE);
-	}
+	if (!tokens) { fprintf(stderr, "filson: allocation error\n"); exit(EXIT_FAILURE); }
 	i = 0;
 	while (line[i] != '\0') {
-		while (line[i] == ' ' || line[i] == '\t' || line[i] == '\n') {
-			i++;
-		}
-		if (line[i] == '\0') {
-			break;
-		}
-		j = 0;
-		in_single = 0;
-		in_double = 0;
-		brace_depth = 0;
-		paren_depth = 0;
-		unquoted_start = 0;
-		eq_tilde_escaped = 0;
-		started_in_single = 0;
-		started_in_double = 0;
-		while (line[i] != '\0') {
-			if (!in_double && line[i] == '\'') {
-				if (!in_single && j == 0)
-					started_in_single = 1;
-				in_single = !in_single;
-				i++;
-				continue;
-			}
-			if (!in_single && line[i] == '"') {
-				if (!in_double && j == 0)
-					started_in_double = 1;
-				if (brace_depth > 0 && j < (int)sizeof(tokbuf) - 1)
-					tokbuf[j++] = '\x05';
-				in_double = !in_double;
-				i++;
-				continue;
-			}
-			if (!in_single && !in_double) {
-				if (brace_depth == 0 && line[i] == '\\' && line[i + 1] != '\0' && line[i + 1] != '\n') {
-					if (j == 0)
-						unquoted_start = 0;
-					if (j > 0 && tokbuf[j - 1] == '=' && line[i + 1] == '~')
-						eq_tilde_escaped = 1;
-					i++;
-					if (j < (int)sizeof(tokbuf) - 1)
-						tokbuf[j++] = line[i];
-					i++;
-					continue;
-				}
-				if (line[i] == '$' && line[i + 1] == '{') {
-					brace_depth++;
-					if (j < (int)sizeof(tokbuf) - 2) {
-						tokbuf[j++] = line[i];
-						tokbuf[j++] = line[i + 1];
-					}
-					i += 2;
-					continue;
-				}
-				if (brace_depth > 0 && line[i] == '}') {
-					brace_depth--;
-					if (j < (int)sizeof(tokbuf) - 1)
-						tokbuf[j++] = line[i];
-					i++;
-					continue;
-				}
-				if (line[i] == '$' && line[i + 1] == '(') {
-					paren_depth++;
-					if (j < (int)sizeof(tokbuf) - 2) {
-						tokbuf[j++] = line[i];
-						tokbuf[j++] = line[i + 1];
-					}
-					i += 2;
-					continue;
-				}
-				if (paren_depth > 0 && line[i] == ')') {
-					paren_depth--;
-					if (j < (int)sizeof(tokbuf) - 1)
-						tokbuf[j++] = line[i];
-					i++;
-					continue;
-				}
-				if (brace_depth == 0 && paren_depth == 0 &&
-				    (line[i] == ' ' || line[i] == '\t')) {
-					break;
-				}
-			} else if (in_double && !in_single) {
-				if (line[i] == '$' && line[i + 1] == '{') {
-					brace_depth++;
-				} else if (brace_depth > 0 && line[i] == '}') {
-					brace_depth--;
-				}
-			}
-			if (j < (int)sizeof(tokbuf) - 1) {
-				if (j == 0 && !in_single && !in_double)
-					unquoted_start = 1;
-				tokbuf[j++] = line[i];
-			}
-			i++;
-		}
-		if (j == 0 && !started_in_double && !started_in_single) {
-			continue;
-		}
-		tokbuf[j] = '\0';
-		{
-			int eqpos;
-			char *tilde_exp;
-
-			eqpos = -1;
-			{
-				int k;
-				for (k = 0; k < j; k++) {
-					if (tokbuf[k] == '=') {
-						eqpos = k;
-						break;
-					}
-				}
-			}
-			if (eqpos >= 0 && tokbuf[eqpos + 1] == '~' && !eq_tilde_escaped) {
-				tilde_exp = filson_tilde_expand(tokbuf + eqpos + 1);
-				if (tilde_exp != NULL) {
-					int tlen = strlen(tilde_exp);
-					token_copy = malloc(eqpos + 1 + tlen + 1);
-					if (!token_copy) {
-						free(tilde_exp);
-						fprintf(stderr, "filson: allocation error\n");
-						exit(EXIT_FAILURE);
-					}
-					memcpy(token_copy, tokbuf, eqpos + 1);
-					memcpy(token_copy + eqpos + 1, tilde_exp, tlen + 1);
-					free(tilde_exp);
-					tokens[position] = token_copy;
-					position++;
-					if (position >= bufsize) {
-						bufsize += FILSON_TOK_BUFSIZE;
-						tokens = realloc(tokens, bufsize * sizeof(char *));
-						if (!tokens) {
-							fprintf(stderr, "filson: allocation error\n");
-							exit(EXIT_FAILURE);
-						}
-					}
-					continue;
-				}
-			}
-		}
-		if (unquoted_start && tokbuf[0] == '~') {
-			char *tilde_exp = filson_tilde_expand(tokbuf);
-			if (tilde_exp != NULL) {
-				token_copy = tilde_exp;
-				tokens[position] = token_copy;
-				position++;
-				if (position >= bufsize) {
-					bufsize += FILSON_TOK_BUFSIZE;
-					tokens = realloc(tokens, bufsize * sizeof(char *));
-					if (!tokens) {
-						fprintf(stderr, "filson: allocation error\n");
-						exit(EXIT_FAILURE);
-					}
-				}
-				continue;
-			}
-		}
-		token_copy = malloc(j + 1 + ((started_in_single || started_in_double) ? 1 : 0));
-		if (!token_copy) {
-			fprintf(stderr, "filson: allocation error\n");
-			exit(EXIT_FAILURE);
-		}
-		if (started_in_single) {
-			token_copy[0] = '\x01';
-			memcpy(token_copy + 1, tokbuf, j + 1);
-		} else if (started_in_double) {
-			token_copy[0] = '\x02';
-			memcpy(token_copy + 1, tokbuf, j + 1);
-		} else {
-			memcpy(token_copy, tokbuf, j + 1);
-		}
-		tokens[position] = token_copy;
-		position++;
-		if (position >= bufsize) {
-			bufsize += FILSON_TOK_BUFSIZE;
-			tokens = realloc(tokens, bufsize * sizeof(char *));
-			if (!tokens) {
-				fprintf(stderr, "filson: allocation error\n");
-				exit(EXIT_FAILURE);
-			}
-		}
+		while (line[i] == ' ' || line[i] == '\t' || line[i] == '\n') i++;
+		if (line[i] == '\0') break;
+		j = 0; in_single = 0; in_double = 0;
+		brace_depth = 0; paren_depth = 0;
+		unquoted_start = 0; eq_tilde_escaped = 0;
+		started_in_single = 0; started_in_double = 0;
+		i = filson_sl_scan_token(line, i, tokbuf, (int)sizeof(tokbuf), &j,
+		    &in_single, &in_double, &brace_depth, &paren_depth,
+		    &unquoted_start, &eq_tilde_escaped,
+		    &started_in_single, &started_in_double);
+		filson_sl_store_token(&tokens, &position, &bufsize,
+		    tokbuf, j, started_in_single, started_in_double,
+		    unquoted_start, eq_tilde_escaped);
 	}
 	tokens[position] = NULL;
 	return tokens;
