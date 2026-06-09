@@ -355,17 +355,17 @@ filson_get_pospar(int idx)
 {
 	struct filson_param_frame *fr;
 
+	if (idx == 0) {
+		return getenv("FILSON_SCRIPT_PATH");
+	}
 	if (filson_call_depth == 0) {
-		if (idx == 0) {
-			return getenv("FILSON_SCRIPT_PATH");
-		}
 		if (idx < 1 || idx > filson_global_pospar_count) {
 			return NULL;
 		}
 		return filson_global_posparams[idx - 1];
 	}
 	fr = &filson_call_stack[filson_call_depth - 1];
-	if (idx < 0 || idx >= fr->count) {
+	if (idx < 1 || idx >= fr->count) {
 		return NULL;
 	}
 	return fr->params[idx];

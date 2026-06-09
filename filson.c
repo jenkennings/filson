@@ -177,6 +177,9 @@ filson_path_is_safe(void)
 	free(path_copy);
 	return safe;
 }
+
+static int filson_ifs_split(const char *s, char **out, int max);
+
 int
 filson_launch(char **args, int background, char *segment)
 {
@@ -184,36 +187,118 @@ filson_launch(char **args, int background, char *segment)
 	pid_t waited;
 	int status;
 	int job_id;
-	char **expanded;
+	char *pre_args[FILSON_MAX_ARGS + 1];
+	int pre_ai;
+	int argc_local;
+	int ai;
 
 	assert(args != NULL);
 	assert(args[0] != NULL);
 
-	pid = fork();
-	if (pid == 0) {
-		int argc_local;
-		char **exp_args;
-		int ai;
+	argc_local = 0;
+	while (args[argc_local] != NULL)
+		argc_local++;
+	pre_ai = 0;
+	for (ai = 0; ai < argc_local && args[ai] != NULL; ai++) {
+		char *ev;
+		unsigned char first_byte;
+		int ev_was_quoted;
 
-		argc_local = 0;
-		while (args[argc_local] != NULL) {
-			argc_local++;
+		ev = filson_expand_string_variables(args[ai]);
+		first_byte = (unsigned char)args[ai][0];
+		ev_was_quoted = 0;
+		if ((unsigned char)ev[0] == 0x02) {
+			char *stripped = strdup(ev + 1);
+			if (ev != args[ai])
+				free(ev);
+			ev = stripped;
+			ev_was_quoted = 1;
+		} else if (first_byte == 0x01 || first_byte == 0x02) {
+			ev_was_quoted = 1;
 		}
-		exp_args = malloc((argc_local + 1) * sizeof(char *));
-		if (exp_args != NULL) {
-			for (ai = 0; ai < argc_local; ai++) {
-				exp_args[ai] = filson_expand_string_variables(args[ai]);
-				if (exp_args[ai] == NULL || exp_args[ai] == args[ai]) {
-					exp_args[ai] = args[ai];
+		if ((unsigned char)ev[0] == 0x03) {
+			char *mp = ev + 1;
+			for (;;) {
+				char *mnext = strchr(mp, '\x1f');
+				int mlen = mnext ? (int)(mnext - mp) : (int)strlen(mp);
+				if (pre_ai < FILSON_MAX_ARGS)
+					pre_args[pre_ai++] = strndup(mp, (size_t)mlen);
+				if (!mnext)
+					break;
+				mp = mnext + 1;
+			}
+			if (ev != args[ai])
+				free(ev);
+			continue;
+		}
+		if (ev != args[ai] && ev[0] == '\0' &&
+		    first_byte != 0x01 && first_byte != 0x02 &&
+		    args[ai][0] == '$') {
+			free(ev);
+			continue;
+		}
+		if (!ev_was_quoted && ev != args[ai] && ev[0] != '\0') {
+			char *ifs_parts[FILSON_MAX_ARGS + 1];
+			int nparts = filson_ifs_split(ev, ifs_parts,
+			    FILSON_MAX_ARGS - pre_ai);
+			if (nparts > 0) {
+				int pi;
+				for (pi = 0; pi < nparts && pre_ai < FILSON_MAX_ARGS; pi++) {
+					if (!filson_noglob && filson_has_glob_chars(ifs_parts[pi])) {
+						glob_t g;
+						int grc = filson_glob_expand(ifs_parts[pi], &g);
+						if (grc == 0 && (g.gl_pathc != 1 ||
+						    strcmp(g.gl_pathv[0], ifs_parts[pi]) != 0)) {
+							int gi;
+							for (gi = 0; gi < (int)g.gl_pathc &&
+							    pre_ai < FILSON_MAX_ARGS; gi++)
+								pre_args[pre_ai++] = strdup(g.gl_pathv[gi]);
+							globfree(&g);
+							free(ifs_parts[pi]);
+							continue;
+						} else if (grc == 0) {
+							globfree(&g);
+						}
+					}
+					pre_args[pre_ai++] = ifs_parts[pi];
+				}
+				if (ev != args[ai])
+					free(ev);
+				continue;
+			} else if (nparts == 0) {
+				if (ev != args[ai])
+					free(ev);
+				continue;
+			}
+		}
+		if (first_byte != 0x01 && first_byte != 0x02 &&
+		    !ev_was_quoted &&
+		    !filson_noglob && filson_has_glob_chars(ev)) {
+			glob_t g;
+			int grc = filson_glob_expand(ev, &g);
+			if (grc == 0) {
+				if (g.gl_pathc == 1 && strcmp(g.gl_pathv[0], ev) == 0) {
+					globfree(&g);
+				} else {
+					int gi;
+					for (gi = 0; gi < (int)g.gl_pathc &&
+					    pre_ai < FILSON_MAX_ARGS; gi++)
+						pre_args[pre_ai++] = strdup(g.gl_pathv[gi]);
+					globfree(&g);
+					if (ev != args[ai])
+						free(ev);
+					continue;
 				}
 			}
-			exp_args[argc_local] = NULL;
-		} else {
-			exp_args = args;
 		}
-		expanded = filson_expand_globs(exp_args);
-		execvp(expanded[0], expanded);
-		warn("%s", expanded[0]);
+		pre_args[pre_ai++] = (ev != args[ai]) ? ev : strdup(ev);
+	}
+	pre_args[pre_ai] = NULL;
+
+	pid = fork();
+	if (pid == 0) {
+		execvp(pre_args[0], pre_args);
+		warn("%s", pre_args[0]);
 		_exit(1);
 	} else if (pid < 0) {
 		warn("fork");
@@ -234,7 +319,7 @@ filson_launch(char **args, int background, char *segment)
 				if (waited < 0) {
 					warn("waitpid");
 					filson_last_cmd_success = 0;
-					return 1;
+					goto launch_done;
 				}
 			} while (!WIFEXITED(status) && !WIFSIGNALED(status) && !WIFSTOPPED(status));
 			if (WIFSTOPPED(status)) {
@@ -256,7 +341,77 @@ filson_launch(char **args, int background, char *segment)
 			}
 		}
 	}
+launch_done:
+	for (ai = 0; ai < pre_ai; ai++) {
+		if (pre_args[ai] != NULL)
+			free(pre_args[ai]);
+	}
 	return 1;
+}
+
+static int
+filson_ifs_split(const char *s, char **out, int max)
+{
+	const char *ifs;
+	const char *p;
+	const char *start;
+	int n;
+	int k;
+	int all_ws;
+
+	ifs = getenv("IFS");
+	if (ifs == NULL)
+		ifs = " \t\n";
+	if (ifs[0] == '\0') {
+		if (max > 0)
+			out[0] = strdup(s);
+		return (max > 0) ? 1 : 0;
+	}
+	all_ws = 1;
+	for (k = 0; ifs[k]; k++) {
+		if (ifs[k] != ' ' && ifs[k] != '\t' && ifs[k] != '\n') {
+			all_ws = 0;
+			break;
+		}
+	}
+	n = 0;
+	p = s;
+	while (*p && strchr(ifs, (unsigned char)*p) &&
+	    (*p == ' ' || *p == '\t' || *p == '\n'))
+		p++;
+	if (*p == '\0')
+		return 0;
+	while (*p && n < max) {
+		start = p;
+		while (*p && !strchr(ifs, (unsigned char)*p))
+			p++;
+		if (p > start) {
+			out[n++] = strndup(start, (size_t)(p - start));
+		} else {
+			out[n++] = strdup("");
+		}
+		if (!*p)
+			break;
+		if (*p == ' ' || *p == '\t' || *p == '\n') {
+			while (*p && strchr(ifs, (unsigned char)*p) &&
+			    (*p == ' ' || *p == '\t' || *p == '\n'))
+				p++;
+			if (*p && strchr(ifs, (unsigned char)*p) &&
+			    *p != ' ' && *p != '\t' && *p != '\n') {
+				p++;
+				while (*p && strchr(ifs, (unsigned char)*p) &&
+				    (*p == ' ' || *p == '\t' || *p == '\n'))
+					p++;
+			}
+		} else {
+			p++;
+			while (*p && strchr(ifs, (unsigned char)*p) &&
+			    (*p == ' ' || *p == '\t' || *p == '\n'))
+				p++;
+		}
+	}
+	(void)all_ws;
+	return n;
 }
 
 static int
@@ -334,12 +489,63 @@ filson_run_command_only(char **args, int argc, int background, char *segment)
 						free(ev);
 					ev = stripped;
 					ev_was_quoted = 1;
+				} else if (first_byte == 0x01 || first_byte == 0x02) {
+					ev_was_quoted = 1;
+				}
+				if ((unsigned char)ev[0] == 0x03) {
+					char *mp = ev + 1;
+					for (;;) {
+						char *mnext = strchr(mp, '\x1f');
+						int mlen = mnext ? (int)(mnext - mp) : (int)strlen(mp);
+						if (out_ai < FILSON_MAX_ARGS)
+							exp_args[out_ai++] = strndup(mp, (size_t)mlen);
+						if (!mnext)
+							break;
+						mp = mnext + 1;
+					}
+					if (ev != args[ai])
+						free(ev);
+					continue;
 				}
 				if (ev != args[ai] && ev[0] == '\0' &&
 				    first_byte != 0x01 && first_byte != 0x02 &&
 				    args[ai][0] == '$') {
 					free(ev);
 					continue;
+				}
+				if (!ev_was_quoted && ev != args[ai] && ev[0] != '\0') {
+					char *ifs_parts[FILSON_MAX_ARGS + 1];
+					int nparts = filson_ifs_split(ev, ifs_parts,
+					    FILSON_MAX_ARGS - out_ai);
+					if (nparts > 0) {
+						int pi;
+						for (pi = 0; pi < nparts && out_ai < FILSON_MAX_ARGS; pi++) {
+							if (!filson_noglob && filson_has_glob_chars(ifs_parts[pi])) {
+								glob_t g;
+								int grc = filson_glob_expand(ifs_parts[pi], &g);
+								if (grc == 0 && (g.gl_pathc != 1 ||
+								    strcmp(g.gl_pathv[0], ifs_parts[pi]) != 0)) {
+									int gi;
+									for (gi = 0; gi < (int)g.gl_pathc &&
+									    out_ai < FILSON_MAX_ARGS; gi++)
+										exp_args[out_ai++] = strdup(g.gl_pathv[gi]);
+									globfree(&g);
+									free(ifs_parts[pi]);
+									continue;
+								} else if (grc == 0) {
+									globfree(&g);
+								}
+							}
+							exp_args[out_ai++] = ifs_parts[pi];
+						}
+						if (ev != args[ai])
+							free(ev);
+						continue;
+					} else if (nparts == 0) {
+						if (ev != args[ai])
+							free(ev);
+						continue;
+					}
 				}
 				if (first_byte != 0x01 && first_byte != 0x02 &&
 				    !ev_was_quoted &&

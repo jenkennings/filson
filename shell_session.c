@@ -942,6 +942,7 @@ filson_needs_continuation(const char *buf)
 	int loop_depth;
 	int if_depth;
 	int case_depth;
+	int paren_depth;
 	const char *p;
 
 	in_single = 0;
@@ -949,6 +950,7 @@ filson_needs_continuation(const char *buf)
 	loop_depth = 0;
 	if_depth = 0;
 	case_depth = 0;
+	paren_depth = 0;
 	p = buf;
 	while (*p != '\0') {
 		if (!in_double && *p == '\'') {
@@ -962,6 +964,21 @@ filson_needs_continuation(const char *buf)
 			continue;
 		}
 		if (in_single || in_double) {
+			p++;
+			continue;
+		}
+		if (*p == '$' && *(p + 1) == '(') {
+			paren_depth++;
+			p += 2;
+			continue;
+		}
+		if (*p == '(' && paren_depth > 0) {
+			paren_depth++;
+			p++;
+			continue;
+		}
+		if (*p == ')' && paren_depth > 0) {
+			paren_depth--;
 			p++;
 			continue;
 		}
@@ -997,6 +1014,7 @@ filson_needs_continuation(const char *buf)
 	}
 	if (in_single || in_double) return 1;
 	if (loop_depth > 0 || if_depth > 0 || case_depth > 0) return 1;
+	if (paren_depth > 0) return 1;
 	return 0;
 }
 

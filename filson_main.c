@@ -18,6 +18,8 @@ main(int argc, char **argv)
 		setenv("SH", sh_path, 1);
 		setenv("LINENO", "0", 0);
 	}
+	if (getenv("IFS") == NULL)
+		setenv("IFS", " \t\n", 1);
 	if (argc >= 3 && strcmp(argv[1], "-c") == 0) {
 		filson_execute_and_chain(argv[2]);
 		return 0;

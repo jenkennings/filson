@@ -181,7 +181,6 @@ filson_echo(char **args)
 	int eflag;
 	int nflag;
 	int first;
-	char *expanded;
 	char buf[8192];
 	int buf_len;
 	const char *str;
@@ -207,8 +206,7 @@ filson_echo(char **args)
 			buf[buf_len++] = ' ';
 		}
 		first = 0;
-		expanded = filson_expand_string_variables(args[i]);
-		str = expanded;
+		str = args[i];
 		if (eflag) {
 			while (*str && buf_len < (int)sizeof(buf) - 2) {
 				if (*str == '\\' && *(str + 1) != '\0') {
@@ -221,8 +219,6 @@ filson_echo(char **args)
 						buf[buf_len++] = '\b';
 						break;
 					case 'c':
-						if (expanded != args[i])
-							free(expanded);
 						write(1, buf, buf_len);
 						filson_last_cmd_success = 1;
 						return 1;
@@ -276,9 +272,6 @@ filson_echo(char **args)
 			while (*str && buf_len < (int)sizeof(buf) - 1) {
 				buf[buf_len++] = *str++;
 			}
-		}
-		if (expanded != args[i]) {
-			free(expanded);
 		}
 		i++;
 	}

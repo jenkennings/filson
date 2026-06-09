@@ -6,11 +6,13 @@
 #include <pwd.h>
 #include "runtime_state.h"
 #include "expansion.h"
+#include "pipelines.h"
 
 extern int filson_is_valid_varname(const char *name);
 
 static int filson_brace_end(const char *s, int start);
 static char *filson_expand_brace_expr(const char *inner, int inner_len);
+static int filson_in_dquote_context = 0;
 static char *
 filson_make_quoted_result(char *r)
 {
@@ -40,6 +42,34 @@ filson_unescape_word(const char *s)
 	for (i = 0; s[i] != '\0'; i++) {
 		if (s[i] == '\\' && s[i + 1] != '\0') {
 			i++;
+		}
+		out[j++] = s[i];
+	}
+	out[j] = '\0';
+	return out;
+}
+
+static char *
+filson_unescape_dquote_word(const char *s)
+{
+	char *out;
+	int i;
+	int j;
+	char c;
+
+	out = malloc(strlen(s) + 1);
+	if (out == NULL)
+		return strdup(s);
+	j = 0;
+	for (i = 0; s[i] != '\0'; i++) {
+		if (s[i] == '\\' && s[i + 1] != '\0') {
+			c = s[i + 1];
+			if (c == '$' || c == '`' || c == '"' || c == '\\' ||
+			    c == '}' || c == '\n') {
+				i++;
+				out[j++] = c;
+				continue;
+			}
 		}
 		out[j++] = s[i];
 	}
@@ -429,10 +459,15 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 		if (unset_or_empty) {
 			char *tmp = filson_expand_string_variables(word);
 			char *expanded = (tmp == word) ? strdup(word) : tmp;
-			result = filson_unescape_word(expanded);
-			if (result != expanded)
+			if (filson_in_dquote_context) {
+				result = filson_unescape_dquote_word(expanded);
 				free(expanded);
-			if (word_is_quoted)
+			} else {
+				result = filson_unescape_word(expanded);
+				if (result != expanded)
+					free(expanded);
+			}
+			if (word_is_quoted && filson_in_dquote_context)
 				result = filson_make_quoted_result(result);
 		} else {
 			result = strdup(var_value);
@@ -447,10 +482,15 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 		if (unset_or_empty) {
 			char *tmp = filson_expand_string_variables(word);
 			char *expanded = (tmp == word) ? strdup(word) : tmp;
-			result = filson_unescape_word(expanded);
-			if (result != expanded)
+			if (filson_in_dquote_context) {
+				result = filson_unescape_dquote_word(expanded);
 				free(expanded);
-			if (word_is_quoted)
+			} else {
+				result = filson_unescape_word(expanded);
+				if (result != expanded)
+					free(expanded);
+			}
+			if (word_is_quoted && filson_in_dquote_context)
 				result = filson_make_quoted_result(result);
 			setenv(var_name, (unsigned char)result[0] == 0x02 ? result + 1 : result, 1);
 		} else {
@@ -464,13 +504,63 @@ filson_expand_brace_expr(const char *inner, int inner_len)
 	if (op1 == '+') {
 		int set_and_nonempty = (var_value != NULL) && (!colon || var_value[0] != '\0');
 		if (set_and_nonempty) {
-			char *tmp = filson_expand_string_variables(word);
-			char *expanded = (tmp == word) ? strdup(word) : tmp;
-			result = filson_unescape_word(expanded);
-			if (result != expanded)
-				free(expanded);
-			if (word_is_quoted)
-				result = filson_make_quoted_result(result);
+			if (word_is_quoted &&
+			    (unsigned char)word[0] == 0x05 && word[1] == '$' &&
+			    word[2] == '@' && (unsigned char)word[3] == 0x05 &&
+			    word[4] == '\0') {
+				int count = filson_get_pospar_count();
+				if (count == 0) {
+					result = strdup("\x03");
+				} else {
+					int total;
+					int kk;
+					int rp;
+					char *pv;
+
+					total = 2;
+					for (kk = 1; kk <= count; kk++) {
+						pv = filson_get_pospar(kk);
+						if (pv && ((unsigned char)pv[0] == 0x01 ||
+						    (unsigned char)pv[0] == 0x02))
+							pv++;
+						total += (pv ? (int)strlen(pv) : 0) + 1;
+					}
+					result = malloc(total);
+					if (result != NULL) {
+						rp = 0;
+						result[rp++] = '\x03';
+						for (kk = 1; kk <= count; kk++) {
+							pv = filson_get_pospar(kk);
+							if (pv && ((unsigned char)pv[0] == 0x01 ||
+							    (unsigned char)pv[0] == 0x02))
+								pv++;
+							if (kk > 1)
+								result[rp++] = '\x1f';
+							if (pv) {
+								int plen = strlen(pv);
+								memcpy(result + rp, pv, plen);
+								rp += plen;
+							}
+						}
+						result[rp] = '\0';
+					} else {
+						result = strdup("");
+					}
+				}
+			} else {
+				char *tmp = filson_expand_string_variables(word);
+				char *expanded = (tmp == word) ? strdup(word) : tmp;
+				if (filson_in_dquote_context) {
+					result = filson_unescape_dquote_word(expanded);
+					free(expanded);
+				} else {
+					result = filson_unescape_word(expanded);
+					if (result != expanded)
+						free(expanded);
+				}
+				if (word_is_quoted && filson_in_dquote_context)
+					result = filson_make_quoted_result(result);
+			}
 		} else {
 			result = strdup("");
 		}
@@ -565,8 +655,15 @@ filson_expand_string_variables(const char *str)
 	if ((unsigned char)str[0] == 0x01)
 		return strdup(str + 1);
 	if ((unsigned char)str[0] == 0x02) {
-		const char *inner = str + 1;
-		char *result_inner = filson_expand_string_variables(inner);
+		int save_dq;
+		const char *inner;
+		char *result_inner;
+
+		save_dq = filson_in_dquote_context;
+		filson_in_dquote_context = 1;
+		inner = str + 1;
+		result_inner = filson_expand_string_variables(inner);
+		filson_in_dquote_context = save_dq;
 		if (result_inner == inner)
 			result_inner = strdup(inner);
 		return result_inner;
@@ -635,8 +732,8 @@ filson_expand_string_variables(const char *str)
 						}
 						strcpy(&output[j], var_value);
 						j += val_len;
-						expansion_found = 1;
 					}
+					expansion_found = 1;
 					i += var_len;
 					free(var_name);
 					continue;
@@ -658,8 +755,8 @@ filson_expand_string_variables(const char *str)
 					}
 					strcpy(&output[j], pval);
 					j += val_len;
-					expansion_found = 1;
 				}
+				expansion_found = 1;
 				i++;
 				continue;
 			} else if (str[i + 1] == '?') {
@@ -751,6 +848,54 @@ filson_expand_string_variables(const char *str)
 				expansion_found = 1;
 				i++;
 				continue;
+			} else if (str[i + 1] == '(' && str[i + 2] == '(') {
+				int d;
+				int close_p;
+
+				d = 1;
+				close_p = i + 3;
+				while (str[close_p] != '\0' && d > 0) {
+					if (str[close_p] == '(')
+						d++;
+					else if (str[close_p] == ')')
+						d--;
+					if (d > 0)
+						close_p++;
+				}
+				if (d == 0 && str[close_p + 1] == ')') {
+					int expr_len;
+					char *arith_expr;
+
+					expr_len = close_p - (i + 3);
+					arith_expr = malloc(expr_len + 1);
+					if (arith_expr != NULL) {
+						char *arith_expanded;
+						long arith_result;
+						char result_buf[64];
+						int rlen;
+
+						memcpy(arith_expr, str + i + 3, expr_len);
+						arith_expr[expr_len] = '\0';
+						arith_expanded = filson_expand_string_variables(arith_expr);
+						arith_result = filson_evaluate_arithmetic(
+						    arith_expanded != arith_expr ? arith_expanded : arith_expr);
+						if (arith_expanded != arith_expr)
+							free(arith_expanded);
+						free(arith_expr);
+						snprintf(result_buf, sizeof(result_buf), "%ld", arith_result);
+						rlen = strlen(result_buf);
+						if (j + rlen >= input_len * 2) {
+							output = realloc(output, j + rlen + 256);
+							if (output == NULL)
+								return (char *)str;
+						}
+						strcpy(&output[j], result_buf);
+						j += rlen;
+						expansion_found = 1;
+					}
+					i = close_p + 1;
+					continue;
+				}
 			}
 		}
 		if (j >= input_len * 2) {

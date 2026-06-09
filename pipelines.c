@@ -119,7 +119,7 @@ filson_run_subcommand(const char *cmd)
 	return out;
 }
 
-static long filson_evaluate_arithmetic(const char *expr);
+long filson_evaluate_arithmetic(const char *expr);
 static long filson_parse_assign(const char *expr, int *pos);
 
 static long
@@ -583,7 +583,7 @@ filson_parse_assign(const char *expr, int *pos)
 	return filson_parse_logor(expr, pos);
 }
 
-static long
+long
 filson_evaluate_arithmetic(const char *expr)
 {
 	int pos;
@@ -666,6 +666,8 @@ filson_expand_command_substitutions(const char *line)
 		}
 		if (!in_single && line[i] == '$' && line[i + 1] == '(') {
 			if (line[i + 2] == '(') {
+				int pass_len;
+
 				j = i + 3;
 				depth = 1;
 				while (line[j] != '\0' && depth > 0) {
@@ -682,40 +684,20 @@ filson_expand_command_substitutions(const char *line)
 					free(out);
 					return NULL;
 				}
-				cmd = malloc((j - (i + 3)) + 1);
-				if (cmd == NULL) {
-					free(out);
-					return NULL;
-				}
-				for (k = 0; k < j - (i + 3); k++) {
-					cmd[k] = line[i + 3 + k];
-				}
-				cmd[k] = '\0';
-				{
-					char *arith_expanded;
-					long arith_result;
-
-					arith_expanded = filson_expand_string_variables(cmd);
-					arith_result = filson_evaluate_arithmetic(
-					    arith_expanded != cmd ? arith_expanded : cmd);
-					if (arith_expanded != cmd) free(arith_expanded);
-					free(cmd);
-					char result_buf[64];
-					snprintf(result_buf, sizeof(result_buf), "%ld", arith_result);
-					if (out_len + (int)strlen(result_buf) + 1 > out_cap) {
-						while (out_len + (int)strlen(result_buf) + 1 > out_cap) {
-							out_cap *= 2;
-						}
-						tmp = realloc(out, out_cap);
-						if (tmp == NULL) {
-							free(out);
-							return NULL;
-						}
-						out = tmp;
+				pass_len = (j + 2) - i;
+				if (out_len + pass_len + 1 > out_cap) {
+					while (out_len + pass_len + 1 > out_cap) {
+						out_cap *= 2;
 					}
-					memcpy(out + out_len, result_buf, strlen(result_buf));
-					out_len += strlen(result_buf);
+					tmp = realloc(out, out_cap);
+					if (tmp == NULL) {
+						free(out);
+						return NULL;
+					}
+					out = tmp;
 				}
+				memcpy(out + out_len, line + i, pass_len);
+				out_len += pass_len;
 				i = j + 2;
 				continue;
 			} else {
@@ -1794,9 +1776,10 @@ filson_execute_and_chain(char *line)
 			while (line[i] != '\0' && line[i] != '\n') {
 				i++;
 			}
-			if (line[i] == '\n') {
-				i--;
+			if (line[i] == '\0') {
+				break;
 			}
+			i--;
 			continue;
 		}
 		if (!in_single && !in_double && line[i] == '\n') {
@@ -2056,6 +2039,64 @@ filson_execute_and_chain(char *line)
 			}
 		}
 		continue;
+		}
+		{
+			int alen = args[i] ? (int)strlen(args[i]) : 0;
+			if (alen >= 3 && args[i][alen - 2] == '(' && args[i][alen - 1] == ')' &&
+			    args[i + 1] != NULL && strcmp(args[i + 1], "{") == 0) {
+				char func_name[256];
+				int depth, brace_end, k, name_len;
+
+				name_len = alen - 2;
+				if (name_len >= (int)sizeof(func_name))
+					name_len = (int)sizeof(func_name) - 1;
+				memcpy(func_name, args[i], name_len);
+				func_name[name_len] = '\0';
+				depth = 0;
+				brace_end = -1;
+				for (k = i + 1; args[k] != NULL; k++) {
+					if (strcmp(args[k], "{") == 0)
+						depth++;
+					else if (strcmp(args[k], "}") == 0) {
+						depth--;
+						if (depth == 0) {
+							brace_end = k;
+							break;
+						}
+					}
+				}
+				if (brace_end > 0 && should_run) {
+					int body_len = 0;
+					char *body;
+
+					for (k = i + 2; k < brace_end; k++)
+						body_len += strlen(args[k]) + 1;
+					body = malloc(body_len + 1);
+					if (body != NULL) {
+						int bp = 0;
+
+						for (k = i + 2; k < brace_end; k++) {
+							int slen = strlen(args[k]);
+							memcpy(body + bp, args[k], slen);
+							bp += slen;
+							body[bp++] = ' ';
+						}
+						if (bp > 0)
+							body[bp - 1] = '\0';
+						else
+							body[0] = '\0';
+						filson_define_function(func_name, body);
+						free(body);
+					}
+				}
+				if (brace_end > 0) {
+					i = brace_end + 1;
+					if (args[i] != NULL && strcmp(args[i], ";") == 0)
+						i++;
+					should_run = 1;
+					continue;
+				}
+			}
 		}
 		j = i;
 		while (args[j] != NULL && strcmp(args[j], ";") != 0 && strcmp(args[j], "&&") != 0 && strcmp(args[j], "||") != 0 && strcmp(args[j], "if") != 0 && strcmp(args[j], "for") != 0 && strcmp(args[j], "while") != 0 && strcmp(args[j], "until") != 0 && strcmp(args[j], "case") != 0) {
