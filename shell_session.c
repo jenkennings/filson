@@ -527,8 +527,7 @@ filson_sl_scan_token(const char *line, int i, char *tokbuf, int tokbuf_size,
 				i += 2; continue;
 			}
 			if (*brace_depth_p > 0 && line[i] == '}') {
-				(*brace_depth_p)--;
-				if (j < tokbuf_size - 1) tokbuf[j++] = line[i];
+				(*brace_depth_p)--; if (j < tokbuf_size - 1) tokbuf[j++] = line[i];
 				i++; continue;
 			}
 			if (line[i] == '$' && line[i+1] == '(') {
@@ -857,88 +856,52 @@ filson_funcdef_parse(const char *line, char *name_out, int name_max,
 	return 1;
 }
 
+static void
+filson_nc_keyword(const char *p, const char *buf, int *loop_depth_p,
+    int *if_depth_p, int *case_depth_p)
+{
+	if (p != buf && !isspace((unsigned char)p[-1]) && p[-1] != ';' && p[-1] != '\n') return;
+	if (strncmp(p, "for", 3) == 0 && (isspace((unsigned char)p[3]) || p[3] == '\0'))
+		(*loop_depth_p)++;
+	else if (strncmp(p, "while", 5) == 0 && (isspace((unsigned char)p[5]) || p[5] == '\0'))
+		(*loop_depth_p)++;
+	else if (strncmp(p, "until", 5) == 0 && (isspace((unsigned char)p[5]) || p[5] == '\0'))
+		(*loop_depth_p)++;
+	else if (strncmp(p, "if", 2) == 0 && (isspace((unsigned char)p[2]) || p[2] == '\0'))
+		(*if_depth_p)++;
+	else if (strncmp(p, "case", 4) == 0 && (isspace((unsigned char)p[4]) || p[4] == '\0'))
+		(*case_depth_p)++;
+	else if (strncmp(p, "done", 4) == 0 &&
+	    (p[4] == '\0' || isspace((unsigned char)p[4]) || p[4] == ';'))
+		{ if (*loop_depth_p > 0) (*loop_depth_p)--; }
+	else if (strncmp(p, "fi", 2) == 0 &&
+	    (p[2] == '\0' || isspace((unsigned char)p[2]) || p[2] == ';'))
+		{ if (*if_depth_p > 0) (*if_depth_p)--; }
+	else if (strncmp(p, "esac", 4) == 0 &&
+	    (p[4] == '\0' || isspace((unsigned char)p[4]) || p[4] == ';'))
+		{ if (*case_depth_p > 0) (*case_depth_p)--; }
+}
+
 int
 filson_needs_continuation(const char *buf)
 {
-	int in_single;
-	int in_double;
-	int loop_depth;
-	int if_depth;
-	int case_depth;
-	int paren_depth;
+	int in_single, in_double, loop_depth, if_depth, case_depth, paren_depth;
 	const char *p;
 
-	in_single = 0;
-	in_double = 0;
-	loop_depth = 0;
-	if_depth = 0;
-	case_depth = 0;
-	paren_depth = 0;
+	in_single = in_double = loop_depth = if_depth = case_depth = paren_depth = 0;
 	p = buf;
 	while (*p != '\0') {
-		if (!in_double && *p == '\'') {
-			in_single = !in_single;
-			p++;
-			continue;
-		}
-		if (!in_single && *p == '"') {
-			in_double = !in_double;
-			p++;
-			continue;
-		}
-		if (in_single || in_double) {
-			p++;
-			continue;
-		}
-		if (*p == '$' && *(p + 1) == '(') {
-			paren_depth++;
-			p += 2;
-			continue;
-		}
-		if (*p == '(' && paren_depth > 0) {
-			paren_depth++;
-			p++;
-			continue;
-		}
-		if (*p == ')' && paren_depth > 0) {
-			paren_depth--;
-			p++;
-			continue;
-		}
-		if (p == buf || isspace((unsigned char)p[-1]) || p[-1] == ';' ||
-		    p[-1] == '\n') {
-			if (strncmp(p, "for", 3) == 0 &&
-			    (isspace((unsigned char)p[3]) || p[3] == '\0')) {
-				loop_depth++;
-			} else if (strncmp(p, "while", 5) == 0 &&
-			    (isspace((unsigned char)p[5]) || p[5] == '\0')) {
-				loop_depth++;
-			} else if (strncmp(p, "until", 5) == 0 &&
-			    (isspace((unsigned char)p[5]) || p[5] == '\0')) {
-				loop_depth++;
-			} else if (strncmp(p, "if", 2) == 0 &&
-			    (isspace((unsigned char)p[2]) || p[2] == '\0')) {
-				if_depth++;
-			} else if (strncmp(p, "case", 4) == 0 &&
-			    (isspace((unsigned char)p[4]) || p[4] == '\0')) {
-				case_depth++;
-			} else if (strncmp(p, "done", 4) == 0 &&
-			    (p[4] == '\0' || isspace((unsigned char)p[4]) || p[4] == ';')) {
-				if (loop_depth > 0) loop_depth--;
-			} else if (strncmp(p, "fi", 2) == 0 &&
-			    (p[2] == '\0' || isspace((unsigned char)p[2]) || p[2] == ';')) {
-				if (if_depth > 0) if_depth--;
-			} else if (strncmp(p, "esac", 4) == 0 &&
-			    (p[4] == '\0' || isspace((unsigned char)p[4]) || p[4] == ';')) {
-				if (case_depth > 0) case_depth--;
-			}
-		}
+		if (!in_double && *p == '\'') { in_single = !in_single; p++; continue; }
+		if (!in_single && *p == '"') { in_double = !in_double; p++; continue; }
+		if (in_single || in_double) { p++; continue; }
+		if (*p == '$' && *(p + 1) == '(') { paren_depth++; p += 2; continue; }
+		if (*p == '(' && paren_depth > 0) { paren_depth++; p++; continue; }
+		if (*p == ')' && paren_depth > 0) { paren_depth--; p++; continue; }
+		filson_nc_keyword(p, buf, &loop_depth, &if_depth, &case_depth);
 		p++;
 	}
-	if (in_single || in_double) return 1;
-	if (loop_depth > 0 || if_depth > 0 || case_depth > 0) return 1;
-	if (paren_depth > 0) return 1;
-	return 0;
+	return in_single || in_double || loop_depth > 0 || if_depth > 0 ||
+	    case_depth > 0 || paren_depth > 0;
 }
 
 static void
