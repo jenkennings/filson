@@ -846,6 +846,46 @@ filson_join_tokens(char **tokens, int start, int end)
 	return out;
 }
 
+static void
+filson_ep_child_setup(char ***argvv, int i, int stage_count, int pipe_count,
+    int pipes[][2], char *infiles[], char *outfiles[], int out_append[],
+    char *errfiles[], int err_append[], int err_to_out[])
+{
+	int fd;
+
+	if (i > 0) dup2(pipes[i - 1][0], 0);
+	if (i < stage_count - 1) dup2(pipes[i][1], 1);
+	if (infiles[i] != NULL) {
+		fd = open(infiles[i], O_RDONLY);
+		if (fd < 0) { perror("filson"); _exit(EXIT_FAILURE); }
+		dup2(fd, 0); close(fd);
+	}
+	if (outfiles[i] != NULL) {
+		fd = open(outfiles[i], O_WRONLY | O_CREAT |
+		    (out_append[i] ? O_APPEND : O_TRUNC), 0644);
+		if (fd < 0) { perror("filson"); _exit(EXIT_FAILURE); }
+		dup2(fd, 1); close(fd);
+	}
+	if (err_to_out[i]) {
+		dup2(1, 2);
+	} else if (errfiles[i] != NULL) {
+		fd = open(errfiles[i], O_WRONLY | O_CREAT |
+		    (err_append[i] ? O_APPEND : O_TRUNC), 0644);
+		if (fd < 0) { perror("filson"); _exit(EXIT_FAILURE); }
+		dup2(fd, 2); close(fd);
+	}
+	{
+		int j;
+		for (j = 0; j < pipe_count; j++) {
+			close(pipes[j][0]);
+			close(pipes[j][1]);
+		}
+	}
+	execvp(argvv[i][0], argvv[i]);
+	warn("%s", argvv[i][0]);
+	_exit(EXIT_FAILURE);
+}
+
 static int
 filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int out_append[], char *errfiles[], int err_append[], int err_to_out[], int stage_count, int background, const char *segment)
 {
@@ -869,68 +909,16 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 	for (i = 0; i < stage_count; i++) {
 		pids[i] = fork();
 		if (pids[i] == 0) {
-			if (i > 0) {
-				dup2(pipes[i - 1][0], 0);
-			}
-			if (i < stage_count - 1) {
-				dup2(pipes[i][1], 1);
-			}
-			if (infiles[i] != NULL) {
-				int fd_in;
-
-				fd_in = open(infiles[i], O_RDONLY);
-				if (fd_in < 0) {
-					perror("filson");
-					_exit(EXIT_FAILURE);
-				}
-				dup2(fd_in, 0);
-				close(fd_in);
-			}
-			if (outfiles[i] != NULL) {
-				int fd_out;
-
-				fd_out = open(outfiles[i], O_WRONLY | O_CREAT | (out_append[i] ? O_APPEND : O_TRUNC), 0644);
-				if (fd_out < 0) {
-					perror("filson");
-					_exit(EXIT_FAILURE);
-				}
-				dup2(fd_out, 1);
-				close(fd_out);
-			}
-			if (err_to_out[i]) {
-				dup2(1, 2);
-			} else if (errfiles[i] != NULL) {
-				int fd_err;
-
-				fd_err = open(errfiles[i], O_WRONLY | O_CREAT | (err_append[i] ? O_APPEND : O_TRUNC), 0644);
-				if (fd_err < 0) {
-					perror("filson");
-					_exit(EXIT_FAILURE);
-				}
-				dup2(fd_err, 2);
-				close(fd_err);
-			}
-			for (j = 0; j < pipe_count; j++) {
-				close(pipes[j][0]);
-				close(pipes[j][1]);
-			}
-			execvp(argvv[i][0], argvv[i]);
-			warn("%s", argvv[i][0]);
-			_exit(EXIT_FAILURE);
+			filson_ep_child_setup(argvv, i, stage_count, pipe_count, pipes,
+			    infiles, outfiles, out_append, errfiles, err_append, err_to_out);
 		} else if (pids[i] < 0) {
 			perror("filson");
 			filson_last_cmd_success = 0;
-			for (j = 0; j < pipe_count; j++) {
-				close(pipes[j][0]);
-				close(pipes[j][1]);
-			}
+			for (j = 0; j < pipe_count; j++) { close(pipes[j][0]); close(pipes[j][1]); }
 			return 1;
 		}
 	}
-	for (i = 0; i < pipe_count; i++) {
-		close(pipes[i][0]);
-		close(pipes[i][1]);
-	}
+	for (i = 0; i < pipe_count; i++) { close(pipes[i][0]); close(pipes[i][1]); }
 	if (background) {
 		job_id = filson_add_job(pids[stage_count - 1], segment, 0);
 		if (job_id < 0) {
@@ -946,11 +934,10 @@ filson_execute_pipeline(char ***argvv, char *infiles[], char *outfiles[], int ou
 	for (i = 0; i < stage_count; i++) {
 		waitpid(pids[i], &status, 0);
 		if (i == stage_count - 1) {
-			if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+			if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
 				filson_last_cmd_success = 1;
-			} else {
+			else
 				filson_last_cmd_success = 0;
-			}
 		}
 	}
 	return 1;
