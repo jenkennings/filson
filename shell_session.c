@@ -941,175 +941,123 @@ filson_needs_continuation(const char *buf)
 	return 0;
 }
 
+static void
+filson_loop_funcdef_accum(char *resolved, char *func_name, char **func_body_p)
+{
+	const char *pp;
+	int depth, accum_len, bufsize;
+	char *accum, *more, *tmp;
+	int needs_more_dummy;
+
+	bufsize = strlen(resolved) + 4096;
+	accum = malloc(bufsize);
+	if (accum == NULL) return;
+	accum_len = strlen(resolved);
+	strcpy(accum, resolved);
+	depth = 0;
+	pp = resolved;
+	while (*pp != '\0') { if (*pp == '{') depth++; else if (*pp == '}') depth--; pp++; }
+	while (depth > 0) {
+		if (isatty(STDIN_FILENO)) write(STDOUT_FILENO, "> ", 2);
+		more = filson_read_line();
+		if (more == NULL) break;
+		if (accum_len + (int)strlen(more) + 4 > bufsize) {
+			bufsize = accum_len + strlen(more) + 4096;
+			tmp = realloc(accum, bufsize);
+			if (tmp == NULL) { free(more); break; }
+			accum = tmp;
+		}
+		accum[accum_len++] = ';';
+		memcpy(accum + accum_len, more, strlen(more));
+		accum_len += strlen(more);
+		accum[accum_len] = '\0';
+		pp = more;
+		while (*pp != '\0') { if (*pp == '{') depth++; else if (*pp == '}') depth--; pp++; }
+		free(more);
+	}
+	filson_funcdef_parse(accum, func_name, 256, func_body_p, &needs_more_dummy);
+	free(accum);
+}
+
+static int
+filson_loop_continuation(char *resolved, char *line, int *status_p)
+{
+	char *accum, *more, *tmp, *hd_line;
+	int accum_len, bufsize;
+
+	bufsize = strlen(resolved) + 4096;
+	accum = malloc(bufsize);
+	if (accum == NULL) return 0;
+	accum_len = strlen(resolved);
+	strcpy(accum, resolved);
+	while (filson_needs_continuation(accum)) {
+		if (isatty(STDIN_FILENO)) write(STDOUT_FILENO, "> ", 2);
+		more = filson_read_line();
+		if (more == NULL) break;
+		if (accum_len + (int)strlen(more) + 4 > bufsize) {
+			bufsize = accum_len + strlen(more) + 4096;
+			tmp = realloc(accum, bufsize);
+			if (tmp == NULL) { free(more); break; }
+			accum = tmp;
+		}
+		accum[accum_len++] = '\n';
+		memcpy(accum + accum_len, more, strlen(more));
+		accum_len += strlen(more);
+		accum[accum_len] = '\0';
+		free(more);
+	}
+	free(resolved); free(line);
+	hd_line = filson_prepare_heredoc(accum);
+	if (hd_line != NULL) {
+		*status_p = filson_execute_and_chain(hd_line);
+		free(hd_line);
+		if (filson_heredoc_tmppath[0] != '\0') {
+			unlink(filson_heredoc_tmppath);
+			filson_heredoc_tmppath[0] = '\0';
+		}
+	} else {
+		*status_p = filson_execute_and_chain(accum);
+	}
+	free(accum);
+	return 1;
+}
+
 int
 filson_loop(void)
 {
-	char *line;
-	char *resolved;
-	char *hd_line;
-	char *func_body;
-	char *trimmed;
+	char *line, *resolved, *hd_line, *func_body;
 	char func_name[256];
-	int func_needs_more;
-	int status;
+	int func_needs_more, status;
 
 	filson_print_startup_banner();
 	status = 1;
 	do {
 		filson_reap_background_jobs();
-		if (isatty(STDIN_FILENO)) {
-			printf(FILSON_PROMPT);
-			fflush(stdout);
-		}
+		if (isatty(STDIN_FILENO)) { printf(FILSON_PROMPT); fflush(stdout); }
 		line = filson_read_line();
-		if (line == NULL) {
-			if (isatty(STDIN_FILENO)) {
-				printf("\n");
+		if (line == NULL) { if (isatty(STDIN_FILENO)) printf("\n"); break; }
+		{
+			char *trimmed = filson_trim(line);
+			if (strcmp(trimmed, "!") == 0) {
+				const char *last = filson_history_count_entries() > 0 ?
+				    filson_history_get(filson_history_count_entries() - 1) : NULL;
+				if (last == NULL) fprintf(stderr, "filson: no commands in history\n");
+				else printf("%s\n", last);
+				free(line); continue;
 			}
-			break;
-		}
-		trimmed = filson_trim(line);
-		if (strcmp(trimmed, "!") == 0) {
-			const char *last_entry;
-
-			if (filson_history_count_entries() == 0) {
-				fprintf(stderr, "filson: no commands in history\n");
-				free(line);
-				continue;
-			}
-			last_entry = filson_history_get(filson_history_count_entries() - 1);
-			if (last_entry != NULL) {
-				printf("%s\n", last_entry);
-			}
-			free(line);
-			continue;
 		}
 		resolved = filson_resolve_history(line);
-		if (resolved == NULL) {
-			free(line);
-			continue;
-		}
+		if (resolved == NULL) { free(line); continue; }
 		filson_add_history(resolved);
 		if (filson_funcdef_parse(resolved, func_name, sizeof(func_name),
 		    &func_body, &func_needs_more)) {
-			if (func_needs_more) {
-				const char *pp;
-				int depth;
-				int accum_len;
-				int bufsize;
-				char *accum;
-				char *more;
-				char *tmp;
-
-				bufsize = strlen(resolved) + 4096;
-				accum = malloc(bufsize);
-				if (accum != NULL) {
-					accum_len = strlen(resolved);
-					strcpy(accum, resolved);
-					depth = 0;
-					pp = resolved;
-					while (*pp != '\0') {
-						if (*pp == '{') {
-							depth++;
-						} else if (*pp == '}') {
-							depth--;
-						}
-						pp++;
-					}
-					while (depth > 0) {
-						if (isatty(STDIN_FILENO)) {
-							write(STDOUT_FILENO, "> ", 2);
-						}
-						more = filson_read_line();
-						if (more == NULL) {
-							break;
-						}
-						if (accum_len + (int)strlen(more) + 4 > bufsize) {
-							bufsize = accum_len + strlen(more) + 4096;
-							tmp = realloc(accum, bufsize);
-							if (tmp == NULL) {
-								free(more);
-								break;
-							}
-							accum = tmp;
-						}
-						accum[accum_len++] = ';';
-						memcpy(accum + accum_len, more, strlen(more));
-						accum_len += strlen(more);
-						accum[accum_len] = '\0';
-						pp = more;
-						while (*pp != '\0') {
-							if (*pp == '{') {
-								depth++;
-							} else if (*pp == '}') {
-								depth--;
-							}
-							pp++;
-						}
-						free(more);
-					}
-					filson_funcdef_parse(accum, func_name, sizeof(func_name),
-					    &func_body, &func_needs_more);
-					free(accum);
-				}
-			}
-			if (func_body != NULL) {
-				filson_define_function(func_name, func_body);
-				free(func_body);
-			}
-			free(resolved);
-			free(line);
-			continue;
+			if (func_needs_more)
+				filson_loop_funcdef_accum(resolved, func_name, &func_body);
+			if (func_body != NULL) { filson_define_function(func_name, func_body); free(func_body); }
+			free(resolved); free(line); continue;
 		}
 		if (filson_needs_continuation(resolved)) {
-			char *accum;
-			char *more;
-			char *tmp;
-			int accum_len;
-			int bufsize;
-
-			bufsize = strlen(resolved) + 4096;
-			accum = malloc(bufsize);
-			if (accum != NULL) {
-				accum_len = strlen(resolved);
-				strcpy(accum, resolved);
-				while (filson_needs_continuation(accum)) {
-					if (isatty(STDIN_FILENO)) {
-						write(STDOUT_FILENO, "> ", 2);
-					}
-					more = filson_read_line();
-					if (more == NULL) break;
-					if (accum_len + (int)strlen(more) + 4 > bufsize) {
-						bufsize = accum_len + strlen(more) + 4096;
-						tmp = realloc(accum, bufsize);
-						if (tmp == NULL) {
-							free(more);
-							break;
-						}
-						accum = tmp;
-					}
-					accum[accum_len++] = '\n';
-					memcpy(accum + accum_len, more, strlen(more));
-					accum_len += strlen(more);
-					accum[accum_len] = '\0';
-					free(more);
-				}
-				free(resolved);
-				free(line);
-				hd_line = filson_prepare_heredoc(accum);
-				if (hd_line != NULL) {
-					status = filson_execute_and_chain(hd_line);
-					free(hd_line);
-					if (filson_heredoc_tmppath[0] != '\0') {
-						unlink(filson_heredoc_tmppath);
-						filson_heredoc_tmppath[0] = '\0';
-					}
-				} else {
-					status = filson_execute_and_chain(accum);
-				}
-				free(accum);
-				continue;
-			}
+			if (filson_loop_continuation(resolved, line, &status)) continue;
 		}
 		hd_line = filson_prepare_heredoc(resolved);
 		if (hd_line != NULL) {
@@ -1122,19 +1070,14 @@ filson_loop(void)
 		} else {
 			status = filson_execute_and_chain(resolved);
 		}
-		free(resolved);
-		free(line);
+		free(resolved); free(line);
 	} while (status);
 	filson_clear_history();
 	{
 		extern int filson_exit_called;
 		extern int filson_exit_code;
-		if (filson_exit_called) {
-			return filson_exit_code == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
-		}
+		if (filson_exit_called) return filson_exit_code == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 	}
-	if (!isatty(STDIN_FILENO)) {
-		return filson_last_cmd_success ? EXIT_SUCCESS : EXIT_FAILURE;
-	}
+	if (!isatty(STDIN_FILENO)) return filson_last_cmd_success ? EXIT_SUCCESS : EXIT_FAILURE;
 	return EXIT_SUCCESS;
 }
