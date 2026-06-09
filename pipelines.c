@@ -123,148 +123,130 @@ long filson_evaluate_arithmetic(const char *expr);
 static long filson_parse_assign(const char *expr, int *pos);
 
 static long
-filson_parse_factor(const char *expr, int *pos)
+filson_pf_dollar_var(const char *expr, int *pos)
 {
-	long factor;
 	const char *var_value;
+	char var_name[256];
+	int var_len;
+	long factor;
+
+	(*pos)++;
+	var_len = 0;
+	while ((expr[*pos + var_len] >= 'a' && expr[*pos + var_len] <= 'z') ||
+	       (expr[*pos + var_len] >= 'A' && expr[*pos + var_len] <= 'Z') ||
+	       (expr[*pos + var_len] >= '0' && expr[*pos + var_len] <= '9') ||
+	       expr[*pos + var_len] == '_')
+		var_len++;
+	if (var_len == 0 || var_len >= 256) return 0;
+	memcpy(var_name, expr + *pos, var_len);
+	var_name[var_len] = '\0';
+	if (var_len == 1 && var_name[0] >= '0' && var_name[0] <= '9') {
+		char *pval = filson_get_pospar(var_name[0] - '0');
+		if (pval == NULL || strlen(pval) >= 256) factor = 0;
+		else factor = filson_evaluate_arithmetic(pval);
+	} else {
+		var_value = getenv(var_name);
+		if (var_value == NULL || strlen(var_value) >= 256) factor = 0;
+		else factor = filson_evaluate_arithmetic(var_value);
+	}
+	*pos += var_len;
+	return factor;
+}
+
+static long
+filson_pf_paren(const char *expr, int *pos)
+{
 	char var_name[256];
 	int var_len, depth, i;
 
-	while (expr[*pos] == ' ' || expr[*pos] == '\t') {
-		(*pos)++;
+	(*pos)++;
+	depth = 1;
+	i = *pos;
+	while (expr[i] != '\0' && depth > 0) {
+		if (expr[i] == '(') depth++;
+		else if (expr[i] == ')') depth--;
+		i++;
 	}
-	if (expr[*pos] == '!') {
-		(*pos)++;
-		return !filson_parse_factor(expr, pos);
-	}
-	if (expr[*pos] == '~') {
-		(*pos)++;
-		return ~filson_parse_factor(expr, pos);
-	}
-	if (expr[*pos] == '-') {
-		(*pos)++;
-		return -filson_parse_factor(expr, pos);
-	}
-	if (expr[*pos] == '+') {
-		(*pos)++;
-		return filson_parse_factor(expr, pos);
-	}
-	if (expr[*pos] == '$') {
-		(*pos)++;
-		var_len = 0;
-		while ((expr[*pos + var_len] >= 'a' && expr[*pos + var_len] <= 'z') ||
-		       (expr[*pos + var_len] >= 'A' && expr[*pos + var_len] <= 'Z') ||
-		       (expr[*pos + var_len] >= '0' && expr[*pos + var_len] <= '9') ||
-		       expr[*pos + var_len] == '_') {
-			var_len++;
+	if (depth != 0) return 0;
+	var_len = i - *pos - 1;
+	memcpy(var_name, expr + *pos, var_len);
+	var_name[var_len] = '\0';
+	*pos = i;
+	return filson_evaluate_arithmetic(var_name);
+}
+
+static long
+filson_pf_number(const char *expr, int *pos)
+{
+	long factor;
+
+	if (expr[*pos] == '0' && (expr[*pos + 1] == 'x' || expr[*pos + 1] == 'X')) {
+		*pos += 2;
+		factor = 0;
+		while ((expr[*pos] >= '0' && expr[*pos] <= '9') ||
+		       (expr[*pos] >= 'a' && expr[*pos] <= 'f') ||
+		       (expr[*pos] >= 'A' && expr[*pos] <= 'F')) {
+			factor *= 16;
+			if (expr[*pos] >= '0' && expr[*pos] <= '9') factor += expr[*pos] - '0';
+			else if (expr[*pos] >= 'a' && expr[*pos] <= 'f') factor += expr[*pos] - 'a' + 10;
+			else factor += expr[*pos] - 'A' + 10;
+			(*pos)++;
 		}
-		if (var_len == 0 || var_len >= 256) {
-			return 0;
-		}
-		memcpy(var_name, expr + *pos, var_len);
-		var_name[var_len] = '\0';
-		if (var_len == 1 && var_name[0] >= '0' && var_name[0] <= '9') {
-			char *pval = filson_get_pospar(var_name[0] - '0');
-			if (pval == NULL) {
-				factor = 0;
-			} else if (strlen(pval) >= 256) {
-				factor = 0;
-			} else {
-				factor = filson_evaluate_arithmetic(pval);
-			}
-		} else {
-			var_value = getenv(var_name);
-			if (var_value == NULL) {
-				factor = 0;
-			} else if (strlen(var_value) >= 256) {
-				factor = 0;
-			} else {
-				factor = filson_evaluate_arithmetic(var_value);
-			}
-		}
-		*pos += var_len;
 		return factor;
 	}
-	if (expr[*pos] == '(') {
-		(*pos)++;
-		depth = 1;
-		i = *pos;
-		while (expr[i] != '\0' && depth > 0) {
-			if (expr[i] == '(') {
-				depth++;
-			} else if (expr[i] == ')') {
-				depth--;
-			}
-			i++;
+	if (expr[*pos] == '0' && expr[*pos + 1] >= '0' && expr[*pos + 1] <= '7') {
+		factor = 0;
+		while (expr[*pos] >= '0' && expr[*pos] <= '7') {
+			factor = factor * 8 + (expr[*pos] - '0');
+			(*pos)++;
 		}
-		if (depth != 0) {
-			return 0;
-		}
-		var_len = i - *pos - 1;
-		memcpy(var_name, expr + *pos, var_len);
-		var_name[var_len] = '\0';
-		factor = filson_evaluate_arithmetic(var_name);
-		*pos = i;
 		return factor;
 	}
-	if (expr[*pos] >= '0' && expr[*pos] <= '9') {
-		if (expr[*pos] == '0' && (expr[*pos + 1] == 'x' || expr[*pos + 1] == 'X')) {
-			*pos += 2;
-			factor = 0;
-			while ((expr[*pos] >= '0' && expr[*pos] <= '9') ||
-			       (expr[*pos] >= 'a' && expr[*pos] <= 'f') ||
-			       (expr[*pos] >= 'A' && expr[*pos] <= 'F')) {
-				factor *= 16;
-				if (expr[*pos] >= '0' && expr[*pos] <= '9')
-					factor += expr[*pos] - '0';
-				else if (expr[*pos] >= 'a' && expr[*pos] <= 'f')
-					factor += expr[*pos] - 'a' + 10;
-				else
-					factor += expr[*pos] - 'A' + 10;
-				(*pos)++;
-			}
-			return factor;
-		} else if (expr[*pos] == '0' && expr[*pos + 1] >= '0' && expr[*pos + 1] <= '7') {
-			factor = 0;
-			while (expr[*pos] >= '0' && expr[*pos] <= '7') {
-				factor = factor * 8 + (expr[*pos] - '0');
-				(*pos)++;
-			}
-			return factor;
-		} else {
-			factor = 0;
-			while (expr[*pos] >= '0' && expr[*pos] <= '9') {
-				factor = factor * 10 + (expr[*pos] - '0');
-				(*pos)++;
-			}
-			return factor;
-		}
+	factor = 0;
+	while (expr[*pos] >= '0' && expr[*pos] <= '9') {
+		factor = factor * 10 + (expr[*pos] - '0');
+		(*pos)++;
 	}
+	return factor;
+}
+
+static long
+filson_pf_bare_name(const char *expr, int *pos)
+{
+	const char *var_value;
+	char var_name[256];
+	int var_len;
+
+	var_len = 0;
+	while ((expr[*pos + var_len] >= 'a' && expr[*pos + var_len] <= 'z') ||
+	       (expr[*pos + var_len] >= 'A' && expr[*pos + var_len] <= 'Z') ||
+	       (expr[*pos + var_len] >= '0' && expr[*pos + var_len] <= '9') ||
+	       expr[*pos + var_len] == '_')
+		var_len++;
+	if (var_len == 0 || var_len >= 256) return 0;
+	memcpy(var_name, expr + *pos, var_len);
+	var_name[var_len] = '\0';
+	*pos += var_len;
+	var_value = getenv(var_name);
+	if (var_value == NULL || strlen(var_value) >= 256) return 0;
+	return filson_evaluate_arithmetic(var_value);
+}
+
+static long
+filson_parse_factor(const char *expr, int *pos)
+{
+	while (expr[*pos] == ' ' || expr[*pos] == '\t') (*pos)++;
+	if (expr[*pos] == '!') { (*pos)++; return !filson_parse_factor(expr, pos); }
+	if (expr[*pos] == '~') { (*pos)++; return ~filson_parse_factor(expr, pos); }
+	if (expr[*pos] == '-') { (*pos)++; return -filson_parse_factor(expr, pos); }
+	if (expr[*pos] == '+') { (*pos)++; return filson_parse_factor(expr, pos); }
+	if (expr[*pos] == '$') return filson_pf_dollar_var(expr, pos);
+	if (expr[*pos] == '(') return filson_pf_paren(expr, pos);
+	if (expr[*pos] >= '0' && expr[*pos] <= '9') return filson_pf_number(expr, pos);
 	if ((expr[*pos] >= 'a' && expr[*pos] <= 'z') ||
 	    (expr[*pos] >= 'A' && expr[*pos] <= 'Z') ||
-	    expr[*pos] == '_') {
-		var_len = 0;
-		while ((expr[*pos + var_len] >= 'a' && expr[*pos + var_len] <= 'z') ||
-		       (expr[*pos + var_len] >= 'A' && expr[*pos + var_len] <= 'Z') ||
-		       (expr[*pos + var_len] >= '0' && expr[*pos + var_len] <= '9') ||
-		       expr[*pos + var_len] == '_') {
-			var_len++;
-		}
-		if (var_len == 0 || var_len >= 256) {
-			return 0;
-		}
-		memcpy(var_name, expr + *pos, var_len);
-		var_name[var_len] = '\0';
-		*pos += var_len;
-		var_value = getenv(var_name);
-		if (var_value == NULL) {
-			return 0;
-		}
-		if (strlen(var_value) >= 256) {
-			return 0;
-		}
-		return filson_evaluate_arithmetic(var_value);
-	}
+	    expr[*pos] == '_')
+		return filson_pf_bare_name(expr, pos);
 	return 0;
 }
 
