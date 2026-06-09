@@ -1348,12 +1348,26 @@ filson_execute_if_block(char **tokens, int start, int end)
 }
 
 static int
+filson_esr_file_redir(char **tokens, int i, int end, const char *op_name,
+    char **files, int *append, int append_val)
+{
+	if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
+		fprintf(stderr, "filson: syntax error near unexpected token `%s`\n", op_name);
+		filson_last_cmd_success = 0;
+		return -1;
+	}
+	files[0] = tokens[i + 1];
+	append[0] = append_val;
+	return i + 1;
+}
+
+static int
 filson_eps_scan_redir(char **tokens, int start, int end, int *j_p,
     int pos[], char *infiles[], char *outfiles[], int out_append[],
     char *errfiles[], int err_append[], int err_to_out[],
     char *argvbuf[][256])
 {
-	int i;
+	int i, ni;
 
 	*j_p = 0;
 	for (i = start; i < end; i++) {
@@ -1367,61 +1381,32 @@ filson_eps_scan_redir(char **tokens, int start, int end, int *j_p,
 			continue;
 		}
 		if (strcmp(tokens[i], "<") == 0) {
-			if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
-				fprintf(stderr, "filson: syntax error near unexpected token `<`\n");
-				filson_last_cmd_success = 0;
-				return 0;
-			}
-			infiles[*j_p] = tokens[++i];
-			continue;
+			ni = filson_esr_file_redir(tokens, i, end, "<", &infiles[*j_p], &(int){0}, 0);
+			if (ni < 0) return 0;
+			i = ni; continue;
 		}
 		if (strcmp(tokens[i], ">") == 0 || strcmp(tokens[i], "1>") == 0) {
-			if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
-				fprintf(stderr, "filson: syntax error near unexpected token `>`\n");
-				filson_last_cmd_success = 0;
-				return 0;
-			}
-			outfiles[*j_p] = tokens[++i];
-			out_append[*j_p] = 0;
-			continue;
+			ni = filson_esr_file_redir(tokens, i, end, ">", &outfiles[*j_p], &out_append[*j_p], 0);
+			if (ni < 0) return 0;
+			i = ni; continue;
 		}
 		if (strcmp(tokens[i], ">>") == 0 || strcmp(tokens[i], "1>>") == 0) {
-			if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
-				fprintf(stderr, "filson: syntax error near unexpected token `>>`\n");
-				filson_last_cmd_success = 0;
-				return 0;
-			}
-			outfiles[*j_p] = tokens[++i];
-			out_append[*j_p] = 1;
-			continue;
+			ni = filson_esr_file_redir(tokens, i, end, ">>", &outfiles[*j_p], &out_append[*j_p], 1);
+			if (ni < 0) return 0;
+			i = ni; continue;
 		}
 		if (strcmp(tokens[i], "2>") == 0) {
-			if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
-				fprintf(stderr, "filson: syntax error near unexpected token `2>`\n");
-				filson_last_cmd_success = 0;
-				return 0;
-			}
-			errfiles[*j_p] = tokens[++i];
-			err_append[*j_p] = 0;
-			err_to_out[*j_p] = 0;
-			continue;
+			ni = filson_esr_file_redir(tokens, i, end, "2>", &errfiles[*j_p], &err_append[*j_p], 0);
+			if (ni < 0) return 0;
+			err_to_out[*j_p] = 0; i = ni; continue;
 		}
 		if (strcmp(tokens[i], "2>>") == 0) {
-			if (i + 1 >= end || strcmp(tokens[i + 1], "|") == 0) {
-				fprintf(stderr, "filson: syntax error near unexpected token `2>>`\n");
-				filson_last_cmd_success = 0;
-				return 0;
-			}
-			errfiles[*j_p] = tokens[++i];
-			err_append[*j_p] = 1;
-			err_to_out[*j_p] = 0;
-			continue;
+			ni = filson_esr_file_redir(tokens, i, end, "2>>", &errfiles[*j_p], &err_append[*j_p], 1);
+			if (ni < 0) return 0;
+			err_to_out[*j_p] = 0; i = ni; continue;
 		}
 		if (strcmp(tokens[i], "2>&1") == 0) {
-			err_to_out[*j_p] = 1;
-			errfiles[*j_p] = NULL;
-			err_append[*j_p] = 0;
-			continue;
+			err_to_out[*j_p] = 1; errfiles[*j_p] = NULL; err_append[*j_p] = 0; continue;
 		}
 		if (pos[*j_p] >= 255) {
 			fprintf(stderr, "filson: too many arguments\n");
@@ -1778,44 +1763,14 @@ filson_eac_funcdef(char **args, int i, int *new_i_p, int should_run)
 	return 1;
 }
 
-static int
-filson_eac_inline_if(char *prenorm)
+static void
+filson_eii_branch(char *prenorm, int te, int ep, int fp)
 {
-	int ip, cs, tp, ep, fp, te, be, bs, afi;
 	char *tmp_s;
+	int be, bs;
 	extern int filson_function_return_requested;
 	extern int filson_exit_called;
 
-	ip = 0;
-	while (prenorm[ip] == ' ' || prenorm[ip] == '\t' || prenorm[ip] == ';')
-		ip++;
-	if (!(strncmp(prenorm + ip, "if", 2) == 0 &&
-	    (prenorm[ip+2] == ' ' || prenorm[ip+2] == ';' || prenorm[ip+2] == '\0')))
-		return 0;
-	cs = ip + 2;
-	while (prenorm[cs] == ' ' || prenorm[cs] == '\t' || prenorm[cs] == ';')
-		cs++;
-	tp = prenorm_scan_kw(prenorm, cs, "then");
-	if (tp < 0)
-		return 0;
-	if (ip > 0) {
-		tmp_s = strndup(prenorm, ip);
-		if (tmp_s != NULL) { filson_execute_and_chain(tmp_s); free(tmp_s); }
-		if (filson_function_return_requested || filson_exit_called) return 1;
-	}
-	tmp_s = strndup(prenorm + cs, tp - cs);
-	if (tmp_s != NULL) { filson_execute_and_chain(tmp_s); free(tmp_s); }
-	if (filson_function_return_requested || filson_exit_called) return 1;
-	te = tp + 4;
-	while (prenorm[te] == ' ' || prenorm[te] == ';' || prenorm[te] == '\t')
-		te++;
-	ep = prenorm_scan_kw(prenorm, te, "else");
-	fp = prenorm_scan_kw(prenorm, te, "fi");
-	if (fp < 0) {
-		fprintf(stderr, "filson: syntax error: missing 'fi' for 'if'\n");
-		filson_last_cmd_success = 0;
-		return 1;
-	}
 	if (filson_last_cmd_success) {
 		be = (ep >= 0 && ep < fp) ? ep : fp;
 		if (te < be) {
@@ -1834,12 +1789,51 @@ filson_eac_inline_if(char *prenorm)
 		filson_last_cmd_success = 1;
 	}
 	if (!filson_function_return_requested && !filson_exit_called) {
-		afi = fp + 2;
+		int afi = fp + 2;
 		while (prenorm[afi] == ' ' || prenorm[afi] == ';' || prenorm[afi] == '\t')
 			afi++;
 		if (prenorm[afi] != '\0')
 			filson_execute_and_chain(prenorm + afi);
 	}
+}
+
+static int
+filson_eac_inline_if(char *prenorm)
+{
+	int ip, cs, tp, ep, fp, te;
+	char *tmp_s;
+	extern int filson_function_return_requested;
+	extern int filson_exit_called;
+
+	ip = 0;
+	while (prenorm[ip] == ' ' || prenorm[ip] == '\t' || prenorm[ip] == ';')
+		ip++;
+	if (!(strncmp(prenorm + ip, "if", 2) == 0 &&
+	    (prenorm[ip+2] == ' ' || prenorm[ip+2] == ';' || prenorm[ip+2] == '\0')))
+		return 0;
+	cs = ip + 2;
+	while (prenorm[cs] == ' ' || prenorm[cs] == '\t' || prenorm[cs] == ';')
+		cs++;
+	tp = prenorm_scan_kw(prenorm, cs, "then");
+	if (tp < 0) return 0;
+	if (ip > 0) {
+		tmp_s = strndup(prenorm, ip);
+		if (tmp_s != NULL) { filson_execute_and_chain(tmp_s); free(tmp_s); }
+		if (filson_function_return_requested || filson_exit_called) return 1;
+	}
+	tmp_s = strndup(prenorm + cs, tp - cs);
+	if (tmp_s != NULL) { filson_execute_and_chain(tmp_s); free(tmp_s); }
+	if (filson_function_return_requested || filson_exit_called) return 1;
+	te = tp + 4;
+	while (prenorm[te] == ' ' || prenorm[te] == ';' || prenorm[te] == '\t') te++;
+	ep = prenorm_scan_kw(prenorm, te, "else");
+	fp = prenorm_scan_kw(prenorm, te, "fi");
+	if (fp < 0) {
+		fprintf(stderr, "filson: syntax error: missing 'fi' for 'if'\n");
+		filson_last_cmd_success = 0;
+		return 1;
+	}
+	filson_eii_branch(prenorm, te, ep, fp);
 	return 1;
 }
 
@@ -1852,14 +1846,11 @@ filson_eac_dispatch(char **args, int *i_p, int *should_run_p, int *status_p)
 	if (strcmp(kw, "if") == 0 && *should_run_p) {
 		if (!filson_find_matching_fi(args, *i_p, &fi_pos)) {
 			fprintf(stderr, "filson: syntax error: missing 'fi' for 'if'\n");
-			filson_last_cmd_success = 0;
-			*status_p = 1;
-			return -1;
+			filson_last_cmd_success = 0; *status_p = 1; return -1;
 		}
 		*status_p = filson_execute_if_block(args, *i_p, fi_pos + 1);
 		if (*status_p == 0) return -1;
-		*i_p = fi_pos + 1;
-		*should_run_p = 1;
+		*i_p = fi_pos + 1; *should_run_p = 1;
 		filson_eac_advance(args, i_p, should_run_p);
 		return 1;
 	}
@@ -1867,9 +1858,7 @@ filson_eac_dispatch(char **args, int *i_p, int *should_run_p, int *status_p)
 	    strcmp(kw, "until") == 0) && *should_run_p) {
 		if (!filson_find_matching_done(args, *i_p, &done_pos)) {
 			fprintf(stderr, "filson: syntax error: missing 'done' for '%s'\n", kw);
-			filson_last_cmd_success = 0;
-			*status_p = 1;
-			return -1;
+			filson_last_cmd_success = 0; *status_p = 1; return -1;
 		}
 		if (strcmp(kw, "for") == 0)
 			*status_p = filson_execute_for_loop(args, *i_p, done_pos + 1);
@@ -1878,30 +1867,24 @@ filson_eac_dispatch(char **args, int *i_p, int *should_run_p, int *status_p)
 		else
 			*status_p = filson_execute_until_loop(args, *i_p, done_pos + 1);
 		if (*status_p == 0) return -1;
-		*i_p = done_pos + 1;
-		*should_run_p = 1;
+		*i_p = done_pos + 1; *should_run_p = 1;
 		filson_eac_advance(args, i_p, should_run_p);
 		return 1;
 	}
 	if (strcmp(kw, "case") == 0 && *should_run_p) {
 		if (!filson_find_matching_esac(args, *i_p, &esac_pos)) {
 			fprintf(stderr, "filson: syntax error: missing 'esac' for 'case'\n");
-			filson_last_cmd_success = 0;
-			*status_p = 1;
-			return -1;
+			filson_last_cmd_success = 0; *status_p = 1; return -1;
 		}
 		*status_p = filson_execute_case_stmt(args, *i_p, esac_pos + 1);
 		if (*status_p == 0) return -1;
-		*i_p = esac_pos + 1;
-		*should_run_p = 1;
+		*i_p = esac_pos + 1; *should_run_p = 1;
 		filson_eac_advance(args, i_p, should_run_p);
 		return 1;
 	}
 	new_i = *i_p;
 	if (filson_eac_funcdef(args, *i_p, &new_i, *should_run_p)) {
-		*i_p = new_i;
-		*should_run_p = 1;
-		return 1;
+		*i_p = new_i; *should_run_p = 1; return 1;
 	}
 	return 0;
 }
