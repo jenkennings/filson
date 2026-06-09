@@ -77,6 +77,77 @@ filson_unescape_dquote_word(const char *s)
 	return out;
 }
 
+static void
+filson_ep_append(char **out, int *out_len, int *out_cap,
+    const char *val, int val_len, int escape_glob)
+{
+	int k;
+
+	if (*out_len + val_len * 2 + 4 > *out_cap) {
+		*out_cap = *out_len + val_len * 2 + 64;
+		*out = realloc(*out, *out_cap);
+		if (*out == NULL)
+			return;
+	}
+	if (escape_glob) {
+		for (k = 0; k < val_len; k++) {
+			if (val[k] == '*' || val[k] == '?' ||
+			    val[k] == '[' || val[k] == '\\')
+				(*out)[(*out_len)++] = '\\';
+			(*out)[(*out_len)++] = val[k];
+		}
+	} else {
+		memcpy(*out + *out_len, val, val_len);
+		*out_len += val_len;
+	}
+}
+
+static int
+filson_ep_try_brace(const char *pat, int pat_len, int i,
+    char **out, int *out_len, int *out_cap, int in_dq)
+{
+	int bend, inner_copy_len, vval_len;
+	char *brace_result, *inner_copy;
+
+	bend = filson_brace_end(pat, i + 2);
+	if (bend <= 0 || bend > pat_len)
+		return 0;
+	inner_copy_len = bend - i - 2;
+	inner_copy = malloc(inner_copy_len + 1);
+	if (inner_copy == NULL) { free(*out); *out = NULL; return -1; }
+	memcpy(inner_copy, pat + i + 2, inner_copy_len);
+	inner_copy[inner_copy_len] = '\0';
+	brace_result = filson_expand_brace_expr(inner_copy, inner_copy_len);
+	free(inner_copy);
+	if (brace_result == NULL)
+		return 0;
+	vval_len = strlen(brace_result);
+	filson_ep_append(out, out_len, out_cap, brace_result, vval_len, in_dq);
+	free(brace_result);
+	if (*out == NULL)
+		return -1;
+	return bend;
+}
+
+static int
+filson_ep_scan_name(const char *pat, int pat_len, int i)
+{
+	int vn_len = 0;
+	if (i + 1 >= pat_len)
+		return 0;
+	if (!((pat[i + 1] >= 'a' && pat[i + 1] <= 'z') ||
+	    (pat[i + 1] >= 'A' && pat[i + 1] <= 'Z') ||
+	    pat[i + 1] == '_'))
+		return 0;
+	while (i + 1 + vn_len < pat_len &&
+	    ((pat[i + 1 + vn_len] >= 'a' && pat[i + 1 + vn_len] <= 'z') ||
+	    (pat[i + 1 + vn_len] >= 'A' && pat[i + 1 + vn_len] <= 'Z') ||
+	    (pat[i + 1 + vn_len] >= '0' && pat[i + 1 + vn_len] <= '9') ||
+	    pat[i + 1 + vn_len] == '_'))
+		vn_len++;
+	return vn_len;
+}
+
 static char *
 filson_expand_pattern(const char *pat, int pat_len)
 {
@@ -103,86 +174,23 @@ filson_expand_pattern(const char *pat, int pat_len)
 		}
 		if (pat[i] == '$' && i + 1 < pat_len) {
 			if (pat[i + 1] == '{') {
-				int bend;
-				char *brace_result;
-
-				bend = filson_brace_end(pat, i + 2);
-				if (bend > 0 && bend <= pat_len) {
-					char *inner_copy;
-					int inner_copy_len = bend - i - 2;
-					inner_copy = malloc(inner_copy_len + 1);
-					if (inner_copy == NULL) {
-						free(out);
-						return NULL;
-					}
-					memcpy(inner_copy, pat + i + 2, inner_copy_len);
-					inner_copy[inner_copy_len] = '\0';
-					brace_result = filson_expand_brace_expr(inner_copy, inner_copy_len);
-					free(inner_copy);
-					if (brace_result != NULL) {
-						vval_len = strlen(brace_result);
-						if (out_len + vval_len * 2 + 4 > out_cap) {
-							out_cap = out_len + vval_len * 2 + 64;
-							out = realloc(out, out_cap);
-							if (out == NULL) {
-								free(brace_result);
-								return NULL;
-							}
-						}
-						if (in_dq) {
-							int k;
-							for (k = 0; brace_result[k] != '\0'; k++) {
-								if (brace_result[k] == '*' || brace_result[k] == '?' ||
-								    brace_result[k] == '[' || brace_result[k] == '\\')
-									out[out_len++] = '\\';
-								out[out_len++] = brace_result[k];
-							}
-						} else {
-							memcpy(out + out_len, brace_result, vval_len);
-							out_len += vval_len;
-						}
-						free(brace_result);
-						i = bend;
-						continue;
-					}
-				}
+				int bend = filson_ep_try_brace(pat, pat_len, i,
+				    &out, &out_len, &out_cap, in_dq);
+				if (out == NULL) return NULL;
+				if (bend > 0) { i = bend; continue; }
+				if (bend < 0) return NULL;
 			}
-			vn_len = 0;
-			if ((pat[i + 1] >= 'a' && pat[i + 1] <= 'z') ||
-			    (pat[i + 1] >= 'A' && pat[i + 1] <= 'Z') ||
-			    pat[i + 1] == '_') {
-				while (i + 1 + vn_len < pat_len &&
-				    ((pat[i + 1 + vn_len] >= 'a' && pat[i + 1 + vn_len] <= 'z') ||
-				    (pat[i + 1 + vn_len] >= 'A' && pat[i + 1 + vn_len] <= 'Z') ||
-				    (pat[i + 1 + vn_len] >= '0' && pat[i + 1 + vn_len] <= '9') ||
-				    pat[i + 1 + vn_len] == '_'))
-					vn_len++;
-				if (vn_len > 0 && vn_len < (int)sizeof(var_name) - 1) {
-					memcpy(var_name, pat + i + 1, vn_len);
-					var_name[vn_len] = '\0';
-					vval = getenv(var_name);
-					if (vval == NULL) vval = "";
-					vval_len = strlen(vval);
-					if (out_len + vval_len * 2 + 4 > out_cap) {
-						out_cap = out_len + vval_len * 2 + 64;
-						out = realloc(out, out_cap);
-						if (out == NULL) return NULL;
-					}
-					if (in_dq) {
-						int k;
-						for (k = 0; vval[k] != '\0'; k++) {
-							if (vval[k] == '*' || vval[k] == '?' ||
-							    vval[k] == '[' || vval[k] == '\\')
-								out[out_len++] = '\\';
-							out[out_len++] = vval[k];
-						}
-					} else {
-						memcpy(out + out_len, vval, vval_len);
-						out_len += vval_len;
-					}
-					i += vn_len;
-					continue;
-				}
+			vn_len = filson_ep_scan_name(pat, pat_len, i);
+			if (vn_len > 0 && vn_len < (int)sizeof(var_name) - 1) {
+				memcpy(var_name, pat + i + 1, vn_len);
+				var_name[vn_len] = '\0';
+				vval = getenv(var_name);
+				if (vval == NULL) vval = "";
+				vval_len = strlen(vval);
+				filson_ep_append(&out, &out_len, &out_cap, vval, vval_len, in_dq);
+				if (out == NULL) return NULL;
+				i += vn_len;
+				continue;
 			}
 		}
 		if (out_len + 2 > out_cap) {
