@@ -103,10 +103,10 @@ filson_reap_background_jobs(void)
 {
 	assert(filson_last_cmd_success == 0 || filson_last_cmd_success == 1);
 	assert(filson_last_cmd_success >= 0);
-	int status, slot;
+	int status, slot, iter;
 	pid_t pid;
 
-	while (1) {
+	for (iter = 0; iter < FILSON_MAX_JOBS; iter++) {
 		pid = waitpid(-1, &status, WNOHANG | WUNTRACED | WCONTINUED);
 		if (pid <= 0) {
 			break;

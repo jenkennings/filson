@@ -221,122 +221,76 @@ filson_test_int_greater_equal(const char *s1, const char *s2)
 }
 
 int
+static int
+filson_test_unary(char op, const char *arg)
+{
+	assert(arg != NULL);
+	assert(sizeof(char) == 1);
+	switch (op) {
+	case 'f': return filson_test_is_file(arg);
+	case 'd': return filson_test_is_dir(arg);
+	case 'e': return filson_test_file_exists(arg);
+	case 'r': return filson_test_is_readable(arg);
+	case 'w': return filson_test_is_writable(arg);
+	case 'x': return filson_test_is_executable(arg);
+	case 'z': return filson_test_string_empty(arg);
+	case 'n': return filson_test_string_not_empty(arg);
+	default:
+		fprintf(stderr, "filson: test: unknown unary operator: -%c\n", op);
+		return -1;
+	}
+}
+
+static int
+filson_test_binary(const char *left, const char *op, const char *right)
+{
+	assert(left != NULL);
+	assert(op != NULL);
+	if (strcmp(op, "=") == 0)   return filson_test_string_equal(left, right);
+	if (strcmp(op, "!=") == 0)  return filson_test_string_not_equal(left, right);
+	if (strcmp(op, "-eq") == 0) return filson_test_int_equal(left, right);
+	if (strcmp(op, "-ne") == 0) return filson_test_int_not_equal(left, right);
+	if (strcmp(op, "-lt") == 0) return filson_test_int_less_than(left, right);
+	if (strcmp(op, "-le") == 0) return filson_test_int_less_equal(left, right);
+	if (strcmp(op, "-gt") == 0) return filson_test_int_greater_than(left, right);
+	if (strcmp(op, "-ge") == 0) return filson_test_int_greater_equal(left, right);
+	fprintf(stderr, "filson: test: unknown binary operator: %s\n", op);
+	return -1;
+}
+
+int
 filson_test(char **args)
 {
 	assert(args != NULL);
 	assert(args[0] != NULL);
-	int result;
-	int i;
-	int argc;
+	int result, argc;
 
 	argc = 0;
-	while (args[argc] != NULL) {
+	while (args[argc] != NULL)
 		argc++;
-	}
 
 	if (argc < 2) {
 		filson_last_cmd_success = 0;
 		return 1;
 	}
 
-	i = 1;
-	result = 1;
-
-	if (args[i][0] == '-' && args[i][1] != '\0' && args[i][2] == '\0') {
-		char op = args[i][1];
-
-		switch (op) {
-		case 'f':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_is_file(args[i + 1]);
-			break;
-		case 'd':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_is_dir(args[i + 1]);
-			break;
-		case 'e':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_file_exists(args[i + 1]);
-			break;
-		case 'r':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_is_readable(args[i + 1]);
-			break;
-		case 'w':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_is_writable(args[i + 1]);
-			break;
-		case 'x':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_is_executable(args[i + 1]);
-			break;
-		case 'z':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_string_empty(args[i + 1]);
-			break;
-		case 'n':
-			if (i + 1 >= argc) {
-				filson_last_cmd_success = 0;
-				return 1;
-			}
-			result = filson_test_string_not_empty(args[i + 1]);
-			break;
-		default:
-			fprintf(stderr, "filson: test: unknown unary operator: -%c\n", op);
+	if (args[1][0] == '-' && args[1][1] != '\0' && args[1][2] == '\0') {
+		if (argc < 3) {
 			filson_last_cmd_success = 0;
 			return 1;
 		}
-	} else if (i + 1 < argc) {
-		char *left = args[i];
-		char *op = args[i + 1];
-		char *right = (i + 2 < argc) ? args[i + 2] : NULL;
-
-		if (strcmp(op, "=") == 0) {
-			result = filson_test_string_equal(left, right);
-		} else if (strcmp(op, "!=") == 0) {
-			result = filson_test_string_not_equal(left, right);
-		} else if (strcmp(op, "-eq") == 0) {
-			result = filson_test_int_equal(left, right);
-		} else if (strcmp(op, "-ne") == 0) {
-			result = filson_test_int_not_equal(left, right);
-		} else if (strcmp(op, "-lt") == 0) {
-			result = filson_test_int_less_than(left, right);
-		} else if (strcmp(op, "-le") == 0) {
-			result = filson_test_int_less_equal(left, right);
-		} else if (strcmp(op, "-gt") == 0) {
-			result = filson_test_int_greater_than(left, right);
-		} else if (strcmp(op, "-ge") == 0) {
-			result = filson_test_int_greater_equal(left, right);
-		} else {
-			fprintf(stderr, "filson: test: unknown binary operator: %s\n", op);
-			filson_last_cmd_success = 0;
-			return 1;
-		}
+		result = filson_test_unary(args[1][1], args[2]);
+	} else if (argc >= 3) {
+		result = filson_test_binary(args[1], args[2],
+		    (argc > 3) ? args[3] : NULL);
 	} else {
-		result = filson_test_string_not_empty(args[i]);
+		result = filson_test_string_not_empty(args[1]);
 	}
 
+	if (result < 0) {
+		filson_last_cmd_success = 0;
+		return 1;
+	}
 	filson_last_cmd_success = result;
 	return 1;
 }
